@@ -344,3 +344,18 @@ def test_preopen_days_are_not_missing_and_not_counted_as_lacking():
         assert st[date(2026, 7, 30)] == "submitted"
         t = aggregate.total(s, ["osaka"], "sales_gross", date(2026, 7, 1), date(2026, 7, 31), today=date(2026, 8, 1))
         assert t.days_missing == 2  # 7/28・7/29。開院前の7/27は未提出に数えない
+
+
+def test_menu_analysis_ranks_categories_and_normalizes_names():
+    from app import menu as M
+    d = date(2026, 10, 16)
+    with session_scope() as s:
+        p = add_post(s, "9ru", 400, datetime(2026, 10, 16, 18, 0), body_9ru(d, 100000, 100000),
+                     workbook_9ru({d: v(100000, cat_sales=30000, cat_count=3)}, [OCT]))
+        run(s, [p], [("9ru", d)])
+        rows = M.menu_table(s, "9ru", date(2026, 10, 1), date(2026, 10, 31))
+        r = next(x for x in rows if x.name == "美肌治療" and x.market == "国内")
+        assert r.sales == 30000 and r.count == 3 and r.unit_price == 10000
+    assert M.menu_name("NK細胞(¥171,600/件)※NKバンキング6検体で1件扱い") == "NK細胞"
+    assert M.menu_name("SCCL上清液(¥26400円/本)") == "SCCL上清液"
+    assert M.menu_name("脱毛関連(カウンセリング含む)") == "脱毛関連(カウンセリング含む)"  # 金額のない括弧は残す

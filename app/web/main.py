@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import csv
+from collections import defaultdict
 import io
 import json
 import logging
@@ -290,33 +291,135 @@ def dashboard(request: Request, s=Depends(get_db), u=Depends(current_user)):
     return render(request, "dashboard.html", {"d": data, "clinics": Q.clinics(s, codes), "KIND": KIND_LABELS}, s, u)
 
 
+CLINIC_KPIS = ["sales_net", "sales_gross", "sales_incl_cpc", "sales_actual", "receipt", "receipt_excl_deposit",
+               "visitors_total", "visitors_new", "contracts", "inquiries"]
+
+
 @app.get("/clinic/{code}", response_class=HTMLResponse)
-def clinic_detail(request: Request, code: str, month: str | None = None, s=Depends(get_db), u=Depends(current_user)):
+def clinic_detail(request: Request, code: str, view: str = "month", month: str | None = None, day: str | None = None,
+                  year: int | None = None, s=Depends(get_db), u=Depends(current_user)):
+    """クリニック別ダッシュボード（日次・月次・年次を切り替え）。"""
+    from .. import menu as M
+
     if code not in allowed_codes(s, u):
         raise HTTPException(403)
-    y, m = _ym(month, ag.today_jst() - timedelta(days=1))
-    start, end = ag.month_range(y, m)
+    today = ag.today_jst()
+    yesterday = today - timedelta(days=1)
     clinic = s.scalar(select(Clinic).where(Clinic.code == code))
-    metric_codes = [x for x in s.scalars(select(func.distinct(DailyFact.metric)).where(DailyFact.clinic_code == code))]
     defs = Q.metric_defs(s)
-    shown = [k for k in defs if k in metric_codes]
+    have = set(s.scalars(select(func.distinct(DailyFact.metric)).where(DailyFact.clinic_code == code)))
+    kpis = [k for k in CLINIC_KPIS if k in have]
+    ctx = dict(clinic=clinic, view=view, kpis=kpis)
+
+    if view == "day":
+        d = _d(day, yesterday)
+        f = Q.facts_for(s, [code], d - timedelta(days=28), d, kpis)
+        rows = []
+        for k in kpis:
+            cur, prev, wk = f.get((code, d, k)), f.get((code, d - timedelta(days=1), k)), f.get((code, d - timedelta(days=7), k))
+            base = [f.get((code, d - timedelta(days=7 * i), k)) for i in range(1, 5)]
+            base = [b.value for b in base if b and b.value is not None and b.status != "review"]
+            rows.append(dict(metric=k, fact=cur, prev=prev.value if prev else None, wk=wk.value if wk else None,
+                             avg4=(sum(base) / len(base)) if len(base) >= 3 else None))
+        breakdown = defaultdict(list)
+        for fa in s.scalars(select(DailyFact).where(DailyFact.clinic_code == code, DailyFact.target_date == d,
+                                                    DailyFact.metric.in_(("payment", "visitors_segment", "inquiries",
+                                                                          "category_visits", "category_contracts")))):
+            if any(getattr(fa, c) for c in DIM_COLS):
+                breakdown[fa.metric].append(fa)
+        menus = M.menu_table(s, code, d, d)
+        st = Q.statuses(s, [code], d, d).get((code, d))
+        rep = Q.reports_list(s, [code], d, d)
+        ms = d.replace(day=1)
+        breakdown = {k: sorted(v, key=lambda f: -(f.value if f.value is not None else -1)) for k, v in breakdown.items()}
+        ctx.update(d=d, rows=rows, breakdown=breakdown, menus=menus, st=st, rep=rep,
+                   mtd=ag.total(s, [code], "sales_net", ms, d, today=today),
+                   target=ag.target_value(s, code, d.year, d.month, "sales_net"))
+        return render(request, "clinic.html", ctx, s, u)
+
+    if view == "year":
+        y = year or yesterday.year
+        periods = M.months_of(y)
+        cur = {k: Q.agg_rows(s, "M", periods, [code], k) for k in kpis}
+        last = {k: Q.agg_rows(s, "M", M.months_of(y - 1), [code], k) for k in kpis}
+        cmp_end, running = ag.elapsed_end(date(y, 1, 1), date(y, 12, 31), today)
+        ytd = {k: ag.total(s, [code], k, date(y, 1, 1), cmp_end, today=today) for k in kpis if defs[k].kind != "balance"}
+        lytd = {k: ag.total(s, [code], k, date(y - 1, 1, 1), ag.shift_year(cmp_end, -1), today=today) for k in ytd}
+        menus = M.menu_table(s, code, date(y, 1, 1), cmp_end, prev=(date(y - 1, 1, 1), ag.shift_year(cmp_end, -1)))
+        top = menus[:8]
+        sales_key = "sales_net" if "sales_net" in cur else (kpis[0] if kpis else None)
+        chart = {"labels": [f"{i}月" for i in range(1, 13)],
+                 "sales": [cur[sales_key].get((code, p)).value if sales_key and cur[sales_key].get((code, p)) else None
+                           for p in periods],
+                 "menus": {f"{r.market} {r.name}".strip(): [r.monthly.get(p) for p in periods] for r in top}}
+        status_by_month = {}
+        for p in periods:
+            yy, mm = map(int, p.split("-"))
+            a, b = ag.month_range(yy, mm)
+            cnt = defaultdict(int)
+            if a <= yesterday:
+                for x in Q.statuses(s, [code], a, min(b, yesterday)).values():
+                    cnt[x.status] += 1
+            status_by_month[p] = dict(cnt)
+        ctx.update(y=y, periods=periods, cur=cur, last=last, ytd=ytd, lytd=lytd, running=running, cmp_end=cmp_end,
+                   menus=menus, chart=chart, status_by_month=status_by_month)
+        return render(request, "clinic.html", ctx, s, u)
+
+    # 月次
+    y, m = _ym(month, yesterday)
+    start, end = ag.month_range(y, m)
+    shown = [k for k in defs if k in have and not k.startswith(("category_", "payment", "visitors_segment", "cpc_"))]
     facts = {}
-    for f in s.scalars(select(DailyFact).where(DailyFact.clinic_code == code, DailyFact.target_date >= start,
-                                               DailyFact.target_date <= end, DailyFact.market == "", DailyFact.cust == "",
-                                               DailyFact.category == "", DailyFact.channel == "", DailyFact.method == "")):
-        facts[(f.target_date, f.metric)] = f
+    for fa in s.scalars(select(DailyFact).where(DailyFact.clinic_code == code, DailyFact.target_date >= start,
+                                                DailyFact.target_date <= end, DailyFact.market == "", DailyFact.cust == "",
+                                                DailyFact.category == "", DailyFact.channel == "", DailyFact.method == "")):
+        facts[(fa.target_date, fa.metric)] = fa
     st = Q.statuses(s, [code], start, end)
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-    totals = {k: ag.total(s, [code], k, start, end) for k in shown if defs[k].kind != "balance"}
+    totals = {k: ag.total(s, [code], k, start, end, today=today) for k in shown if defs[k].kind != "balance"}
     rates = {"unit_price": Q.paired_rate(s, code, "sales_net", "visitors_total", start, end),
              "new_contract": Q.paired_rate(s, code, "contracts", "visitors_new", start, end)}
-    cats = Q.category_breakdown(s, [code], start, end).get(code, {})
+    ps, pe_, prev, label, running = M.period_range("month", y, m, today)
+    menus = M.menu_table(s, code, start, pe_, prev=prev)
     reports = {r.target_date: (r, p) for r, p in Q.reports_list(s, [code], start, end)}
     chart = {"labels": [d.strftime("%m/%d") for d in days],
              "sales": [facts.get((d, "sales_net")).value if facts.get((d, "sales_net")) else None for d in days],
              "receipt": [facts.get((d, "receipt")).value if facts.get((d, "receipt")) else None for d in days]}
-    return render(request, "clinic.html", dict(clinic=clinic, y=y, m=m, days=days, facts=facts, st=st, shown=shown,
-                                               totals=totals, rates=rates, cats=cats, reports=reports, chart=chart), s, u)
+    ctx.update(y=y, m=m, days=days, facts=facts, st=st, shown=shown, totals=totals, rates=rates, menus=menus,
+               reports=reports, chart=chart, target=ag.target_value(s, code, y, m, "sales_net"), running=running)
+    return render(request, "clinic.html", ctx, s, u)
+
+
+@app.get("/menu", response_class=HTMLResponse)
+def menu_analysis(request: Request, clinic: str = "", view: str = "month", month: str | None = None,
+                  year: int | None = None, market: str = "", s=Depends(get_db), u=Depends(current_user)):
+    """メニュー（施術カテゴリ）分析。院ごとに区分が違うため、院をまたいで合算しない。"""
+    from .. import menu as M
+
+    today = ag.today_jst()
+    yesterday = today - timedelta(days=1)
+    codes = allowed_codes(s, u)
+    clinic = clinic if clinic in codes else (codes[0] if codes else "")
+    if view == "year":
+        y, m = (year or yesterday.year), 1
+    else:
+        view = "month"
+        y, m = _ym(month, yesterday)
+    start, end, prev, label, running = M.period_range(view, y, m, today)
+    prev_label = "前年同期間" if view == "year" else ("前月同期間" if running else "前月")
+    rows = M.menu_table(s, clinic, start, end, market=market, prev=prev)
+    total = sum(r.sales for r in rows)
+    ty = start.year
+    months = M.months_of(ty)
+    trend = M.menu_table(s, clinic, date(ty, 1, 1), min(date(ty, 12, 31), yesterday), market=market)
+    cpc = M.menu_table(s, clinic, start, end, sales_metric="cpc_amount", count_metric="cpc_count", excel_only=True,
+                       prev=prev) if clinic == "bio" else []
+    vc = M.visits_contracts(s, clinic, start, end)
+    markets = sorted({r.market for r in M.menu_table(s, clinic, start, end) if r.market})
+    return render(request, "menu.html", dict(
+        clinics=Q.clinics(s, codes), clinic=clinic, view=view, y=y, m=m, label=label, prev=prev, prev_label=prev_label,
+        rows=rows, total=total, split=M.market_split(rows), insights=M.insights(rows, prev_label), cpc=cpc, vc=vc,
+        market=market, markets=markets, months=months, trend=trend[:10], running=running, end=end), s, u)
 
 
 def _filters(request: Request):

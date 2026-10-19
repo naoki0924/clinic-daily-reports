@@ -1,0 +1,63 @@
+{% extends "base.html" %}{% import "_m.html" as ui with context %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>.bar{height:8px;background:#e8edf7;border-radius:4px;overflow:hidden;min-width:80px}.bar>i{display:block;height:100%;background:var(--accent)}
+.spark{display:flex;align-items:flex-end;gap:2px;height:26px}.spark>i{display:block;width:7px;background:#9db4e8;border-radius:1px}.spark>i.cur{background:var(--accent)}</style>{% endblock %}
+{% block content %}
+{% set cname = (clinics|selectattr('code','equalto',clinic)|first).name if clinic else '' %}
+<h1>メニュー分析 <span class="muted small">{{ cname }}・{{ label }}</span></h1>
+<form class="filters">
+  <label>クリニック<select name="clinic">{% for c in clinics %}<option value="{{ c.code }}" {% if c.code==clinic %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+  <label>期間<select name="view"><option value="month" {% if view=='month' %}selected{% endif %}>月</option><option value="year" {% if view=='year' %}selected{% endif %}>年</option></select></label>
+  <label>月<input type="month" name="month" value="{{ '%04d-%02d'|format(y, m) }}"></label>
+  <label>年<input type="number" name="year" value="{{ y }}" style="width:80px"></label>
+  <label>国内/インバウンド<select name="market"><option value="">すべて</option>{% for mk in markets %}<option {% if mk==market %}selected{% endif %}>{{ mk }}</option>{% endfor %}</select></label>
+  <button>表示</button>
+  <a href="/clinic/{{ clinic }}?view={{ view }}">{{ cname }}のダッシュボード</a>
+</form>
+<p class="small muted">元データ：各院の日報Excelの「カテゴリ別 売上・件数」（採用値。要確認の日は除外）。カテゴリの区分は院ごとに違うため、院をまたいで合算しません。件数は施術・会計の件数で、来院者の人数ではありません。カテゴリ別売上は決済手数料を差し引く前の金額のため、「売上（手数料抜き）」の合計とは一致しません。
+比較：{{ prev_label }}（{{ prev[0] }}〜{{ prev[1] }}）。</p>
+
+<div class="grid">
+  <div class="card"><h2>ポイント（集計値から自動で作成した事実）</h2><ul class="small">{% for l in insights %}<li>{{ l }}</li>{% endfor %}</ul></div>
+  <div class="card"><h2>国内／インバウンドの構成</h2>
+    {% if total %}<table class="small">{% for mk, v in split.items()|sort(attribute='1', reverse=true) %}<tr><td>{{ mk }}</td><td class="n">{{ v|fmt }}</td><td style="min-width:120px"><div class="bar"><i style="width:{{ v / total * 100 }}%"></i></div></td><td class="n">{{ '%.1f'|format(v / total * 100) }}%</td></tr>{% endfor %}
+    <tr style="font-weight:600"><td>合計</td><td class="n">{{ total|fmt }}</td><td></td><td></td></tr></table>
+    {% else %}<p class="muted small">この期間のカテゴリ別売上の記録がありません</p>{% endif %}</div>
+</div>
+
+<div class="card scroll"><h2>メニュー別ランキング</h2>
+<table class="small"><tr><th>#</th><th>区分</th><th>メニュー</th><th class="n">売上</th><th>構成比</th><th class="n">件数</th><th class="n">平均単価<br><span class="muted">売上÷件数</span></th><th class="n">{{ prev_label }}</th><th class="n">増減</th><th class="n">増減率</th><th>{{ months[0][:4] }}年の月別売上</th></tr>
+{% set mx = {} %}
+{% for r in rows %}<tr><td>{{ loop.index }}</td><td>{{ r.market }}</td><td>{{ r.name }}</td><td class="n">{{ r.sales|fmt }}</td>
+<td><div class="bar"><i style="width:{{ (r.sales / total * 100) if total else 0 }}%"></i></div><span class="small">{{ '%.1f'|format(r.sales / total * 100 if total else 0) }}%</span></td>
+<td class="n">{{ r.count|fmt('count') }}</td><td class="n">{{ r.unit_price|fmt if r.unit_price else '算出不可' }}</td>
+<td class="n">{% if r.prev_sales is none %}<span class="muted">データなし</span>{% else %}{{ r.prev_sales|fmt }}{% endif %}</td>
+<td class="n">{% if r.prev_sales is not none %}<span class="{{ 'up' if r.sales >= r.prev_sales else 'down' }}">{{ '{:+,.0f}'.format(r.sales - r.prev_sales) }}</span>{% endif %}</td>
+<td class="n">{% if r.prev_sales %}{{ ui.delta(r.sales, r.prev_sales) }}{% elif r.prev_sales == 0 and r.sales %}<span class="up">新規</span>{% endif %}</td>
+<td>{% set tr = (trend|selectattr('name','equalto',r.name)|selectattr('market','equalto',r.market)|first) %}{% if tr %}{% set peak = tr.monthly.values()|max %}<div class="spark" title="{% for mo in months %}{{ mo[5:] }}月 {{ (tr.monthly.get(mo) or 0)|fmt }}&#10;{% endfor %}">{% for mo in months %}<i class="{{ 'cur' if view=='month' and mo == '%04d-%02d'|format(y, m) }}" style="height:{{ ((tr.monthly.get(mo) or 0) / peak * 100) if peak else 0 }}%"></i>{% endfor %}</div>{% else %}<span class="muted small">—</span>{% endif %}</td></tr>
+{% else %}<tr><td colspan="11" class="muted">この期間のメニュー別の記録がありません</td></tr>{% endfor %}
+</table>
+<p class="small muted">平均単価は同じ期間の売上合計÷件数合計（件数0は算出不可）。月別売上のグラフは、ランキング上位10メニューについて表示します（マウスを重ねると金額）。</p></div>
+
+{% if trend %}<div class="card"><h2>上位メニューの月別推移（{{ months[0][:4] }}年）</h2><div style="position:relative;height:320px"><canvas id="ch"></canvas></div></div>{% endif %}
+
+{% if cpc %}<div class="card scroll"><h2>CPC受託メニュー（BiO・Excelの受託欄）</h2>
+{% set ctot = cpc|sum(attribute='sales') %}
+<p class="small muted">グループ内の受託を含みます（内部取引）。見出しに書かれた単価・注記は除いて名前をそろえています。全院の売上には含めません。</p>
+<table class="small"><tr><th>メニュー</th><th class="n">金額</th><th>構成比</th><th class="n">件数</th><th class="n">平均単価</th><th class="n">{{ prev_label }}</th><th class="n">増減率</th></tr>
+{% for r in cpc %}<tr><td>{{ r.name }}</td><td class="n">{{ r.sales|fmt }}</td><td><div class="bar"><i style="width:{{ (r.sales / ctot * 100) if ctot else 0 }}%"></i></div></td><td class="n">{{ r.count|fmt('count') }}</td><td class="n">{{ r.unit_price|fmt if r.unit_price else '算出不可' }}</td>
+<td class="n">{{ r.prev_sales|fmt if r.prev_sales is not none else '—' }}</td><td class="n">{% if r.prev_sales %}{{ ui.delta(r.sales, r.prev_sales) }}{% endif %}</td></tr>{% endfor %}</table></div>{% endif %}
+
+{% if vc %}<div class="card scroll"><h2>カテゴリ別 来院件数・契約件数（日報本文）</h2>
+<p class="small muted">日報本文の「新規来院/契約数」「既存来院/契約数」の合計。契約件数÷来院件数は院の報告値どうしの比で、成約率とは呼びません。</p>
+<table class="small"><tr><th>区分</th><th>新規/既存</th><th>カテゴリ</th><th class="n">来院件数</th><th class="n">契約件数</th><th class="n">契約件数÷来院件数</th></tr>
+{% for a in vc %}<tr><td>{{ a.market }}</td><td>{{ a.cust }}</td><td>{{ a.category }}</td><td class="n">{{ a.visits|fmt('count') }}</td><td class="n">{{ a.contracts|fmt('count') }}</td><td class="n">{{ '%.0f'|format(a.rate * 100) ~ '%' if a.rate is not none else '算出不可' }}</td></tr>{% endfor %}</table></div>{% endif %}
+
+{% if trend %}<script>
+const pal=['#2457c5','#1f8a4c','#b26a00','#7a5af8','#c0392b','#0e7490','#a16207','#be185d','#475569','#15803d'];
+const months={{ months|tojson }};
+const series={{ trend|map(attribute='name')|list|tojson }}, mk={{ trend|map(attribute='market')|list|tojson }};
+const data={{ trend|map(attribute='monthly')|list|tojson }};
+new Chart(document.getElementById('ch'),{type:'line',data:{labels:months.map(x=>x.slice(5)+'月'),datasets:series.map((n,i)=>({label:(mk[i]?mk[i]+' ':'')+n,data:months.map(mo=>data[i][mo]??null),borderColor:pal[i%10],backgroundColor:pal[i%10],tension:.2}))},options:{responsive:true,maintainAspectRatio:false,plugins:{tooltip:{mode:'index'},legend:{position:'bottom',labels:{boxWidth:12,font:{size:11}}}},scales:{y:{beginAtZero:true}}}});
+</script>{% endif %}
+{% endblock %}

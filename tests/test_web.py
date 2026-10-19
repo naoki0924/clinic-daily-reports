@@ -43,7 +43,8 @@ def _data():
 def test_all_pages_render_for_admin():
     d = _data()
     c = _client()
-    for path in ["/", "/clinic/9ru?month=2026-10", "/reports/daily?day=2026-10-16", "/reports/monthly?month=2026-10",
+    for path in ["/", "/clinic/9ru?month=2026-10", "/clinic/9ru?view=day&day=2026-10-16", "/clinic/9ru?view=year&year=2026",
+                 "/menu?clinic=9ru&month=2026-10", "/menu?clinic=9ru&view=year&year=2026", "/menu?clinic=bio", "/menu?clinic=osaka&market=国内", "/reports/daily?day=2026-10-16", "/reports/monthly?month=2026-10",
                  "/reports/monthly?month=2026-10&metric=payment&method=クレジット", "/reports/yearly?year=2026",
                  "/posts?month=2026-10", "/days?month=2026-10", "/issues", "/history", "/ops", "/settings",
                  f"/evidence?clinic=9ru&day={d}&metric=sales_net", "/adjust?clinic=9ru&day=2026-10-16", "/raw/1",

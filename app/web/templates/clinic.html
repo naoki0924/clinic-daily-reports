@@ -1,44 +1,125 @@
 {% extends "base.html" %}{% import "_m.html" as ui with context %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>{% endblock %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>.tabs{display:flex;gap:4px;margin:0 0 12px;border-bottom:1px solid var(--line)}.tabs a{padding:8px 16px;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;color:var(--muted)}
+.tabs a.on{background:#fff;border-color:var(--line);color:var(--ink);font-weight:600;margin-bottom:-1px}
+.kpis{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.kpi{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.kpi .l{font-size:12px;color:var(--muted)}.kpi .v{font-size:20px;font-weight:700;margin:2px 0}.bar{height:8px;background:#e8edf7;border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--accent)}</style>{% endblock %}
 {% block content %}
-<h1>{{ clinic.name }} <span class="muted small">{{ y }}年{{ m }}月</span></h1>
-<form class="filters"><label>月<input type="month" name="month" value="{{ '%04d-%02d'|format(y, m) }}"></label><button>表示</button>
-  <a href="/reports/monthly?month={{ '%04d-%02d'|format(y, m) }}&clinic={{ clinic.code }}">月次レポート</a></form>
+{% set yday = today - timedelta(days=1) %}
+<h1>{{ clinic.name }}{% if clinic.open_from %} <span class="badge b-preopen">開院 {{ clinic.open_from }}</span>{% endif %}</h1>
+<div class="tabs">
+  <a href="/clinic/{{ clinic.code }}?view=day" class="{{ 'on' if view=='day' }}">日次</a>
+  <a href="/clinic/{{ clinic.code }}?view=month" class="{{ 'on' if view not in ('day','year') }}">月次</a>
+  <a href="/clinic/{{ clinic.code }}?view=year" class="{{ 'on' if view=='year' }}">年次</a>
+  <a href="/menu?clinic={{ clinic.code }}" style="margin-left:auto">メニュー分析 →</a>
+</div>
 
-<div class="grid">
-  <div class="card"><h2>月合計（院の報告値）</h2>
-    <table class="small">{% for k in shown %}{% if k in totals %}<tr><td>{{ metrics[k].name }}</td><td class="n">{{ ui.total(totals[k], metrics[k].unit) }}</td></tr>{% endif %}{% endfor %}</table>
-    <p class="small muted">区分のない値の合計です。区分別（決済方法・カテゴリ等）は月次レポートで絞り込めます。</p>
-  </div>
+{# ============================ 日次 ============================ #}
+{% if view == 'day' %}
+<form class="filters"><input type="hidden" name="view" value="day">
+  <a href="?view=day&day={{ d - timedelta(days=1) }}">← 前日</a>
+  <label>対象日<input type="date" name="day" value="{{ d }}"></label><button>表示</button>
+  {% if d < yday %}<a href="?view=day&day={{ d + timedelta(days=1) }}">翌日 →</a>{% endif %}
+  <span>{{ ui.status(st) }}</span>
+  {% for r, p in rep %}<a href="{{ p.url }}" target="_blank" rel="noopener">元の日報（{{ p.posted_at|dt }}）</a>{% endfor %}
+</form>
+<div class="kpis">
+{% for r in rows %}{% set md = metrics[r.metric] %}
+  <div class="kpi"><div class="l">{{ md.name }}</div>
+    <div class="v">{% if r.fact %}<a href="/evidence?clinic={{ clinic.code }}&day={{ d }}&metric={{ r.metric }}">{{ fact_text(r.fact, md.unit) }}</a>{% if r.fact.status != 'confirmed' %} <span class="badge b-{{ r.fact.status }}">{{ FACT_STATUS[r.fact.status] }}</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</div>
+    <div class="small">前日比 {{ ui.delta(r.fact.value if r.fact else None, r.prev) }}　前週同曜日比 {{ ui.delta(r.fact.value if r.fact else None, r.wk) }}</div>
+    {% if r.avg4 and r.fact and r.fact.value is not none %}<div class="small muted">直近4週の同曜日平均 {{ r.avg4|fmt(md.unit) }}（{{ compare(r.fact.value, r.avg4) }}）</div>{% endif %}
+  </div>{% endfor %}
+  <div class="kpi"><div class="l">月累計 売上（手数料抜き）</div><div class="v">{{ ui.total(mtd) }}</div>
+    {% if target %}<div class="small">目標 {{ target|fmt }}　達成率 {{ '%.1f'|format((mtd.value or 0) / target * 100) }}%</div>{% endif %}</div>
+</div>
+
+<div class="grid" style="margin-top:12px">
+  <div class="card"><h2>この日のメニュー別売上（Excel）</h2>
+  {% set tot = menus|sum(attribute='sales') %}
+  {% if menus %}<table class="small"><tr><th>区分</th><th>メニュー</th><th class="n">売上</th><th class="n">件数</th><th class="n">構成比</th></tr>
+  {% for r in menus if r.sales or r.count %}<tr><td>{{ r.market }}</td><td>{{ r.name }}</td><td class="n">{{ r.sales|fmt }}</td><td class="n">{{ r.count|fmt('count') }}</td><td class="n">{{ '%.1f'|format(r.sales / tot * 100 if tot else 0) }}%</td></tr>{% endfor %}</table>
+  {% else %}<p class="muted small">記録がありません</p>{% endif %}</div>
+  {% for key, title in [('payment','決済方法別'),('visitors_segment','来院者（顧客区分別）'),('inquiries','問い合わせ（経路・カテゴリ別）'),('category_visits','カテゴリ別 来院件数（本文）'),('category_contracts','カテゴリ別 契約件数（本文）')] %}
+  {% if breakdown.get(key) %}<div class="card"><h2>{{ title }}</h2><table class="small">
+    {% for f in breakdown[key] %}<tr><td>{{ [f.market, f.cust, f.category, f.channel, f.method]|select|join(' / ') }}</td>{{ ui.fcell(f, clinic.code, d, key, metrics[key].unit) }}</tr>{% endfor %}
+  </table></div>{% endif %}{% endfor %}
+</div>
+
+{# ============================ 年次 ============================ #}
+{% elif view == 'year' %}
+<form class="filters"><input type="hidden" name="view" value="year">
+  <a href="?view=year&year={{ y - 1 }}">← {{ y - 1 }}年</a><label>年<input type="number" name="year" value="{{ y }}" style="width:90px"></label><button>表示</button>
+  {% if y < yday.year %}<a href="?view=year&year={{ y + 1 }}">{{ y + 1 }}年 →</a>{% endif %}
+  {% if running %}<span class="small muted">進行中の年のため、累計と前年比は 1/1〜{{ cmp_end.strftime('%m/%d') }} の同じ経過期間で比較</span>{% endif %}</form>
+<div class="kpis">
+{% for k, t in ytd.items() %}{% set md = metrics[k] %}<div class="kpi"><div class="l">{{ md.name }}（年間累計）</div><div class="v">{{ ui.total(t, md.unit) }}</div>
+  <div class="small">{% if lytd[k].days_with_value %}前年同期間 {{ lytd[k].value|fmt(md.unit) }}（{{ ui.delta(t.value, lytd[k].value) }}）{% else %}<span class="muted">前年データなし</span>{% endif %}</div></div>{% endfor %}
+</div>
+<div class="card" style="margin-top:12px"><h2>月別推移（線：売上（手数料抜き）、棒：上位メニュー）</h2><div style="position:relative;height:340px"><canvas id="ch"></canvas></div></div>
+<div class="card scroll"><table class="small"><tr><th>月</th>{% for k in kpis %}<th class="n">{{ metrics[k].name }}</th>{% endfor %}<th>提出状況</th></tr>
+{% for p in periods %}<tr><td><a href="?view=month&month={{ p }}">{{ p }}</a></td>
+{% for k in kpis %}{% set a = cur[k].get((clinic.code, p)) %}<td class="n">{% if a and a.value is not none %}{{ a.value|fmt(metrics[k].unit) }}{% if a.provisional %}<sup style="color:var(--prov)" title="未提出{{ a.days_missing }}日・要確認{{ a.days_review }}日">暫</sup>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+<td class="small">{% set sb = status_by_month[p] %}{% if sb %}{% for k2 in ['submitted','review','missing','closed','preopen','failed'] %}{% if sb.get(k2) %}{{ STATUS_LABEL[k2] }}{{ sb[k2] }} {% endif %}{% endfor %}{% else %}<span class="muted">—</span>{% endif %}</td></tr>{% endfor %}
+</table><p class="small muted">暫＝未提出・要確認・暫定値を含む月。区分のない値の月合計です。</p></div>
+<div class="card scroll"><h2>メニュー別 年間ランキング（上位15）</h2>
+{% set tot = menus|sum(attribute='sales') %}
+<table class="small"><tr><th>#</th><th>区分</th><th>メニュー</th><th class="n">売上</th><th>構成比</th><th class="n">件数</th><th class="n">平均単価</th><th class="n">前年同期間比</th></tr>
+{% for r in menus[:15] %}<tr><td>{{ loop.index }}</td><td>{{ r.market }}</td><td>{{ r.name }}</td><td class="n">{{ r.sales|fmt }}</td>
+<td style="min-width:120px"><div class="bar"><i style="width:{{ (r.sales / tot * 100) if tot else 0 }}%"></i></div><span class="small">{{ '%.1f'|format(r.sales / tot * 100 if tot else 0) }}%</span></td>
+<td class="n">{{ r.count|fmt('count') }}</td><td class="n">{{ r.unit_price|fmt if r.unit_price else '算出不可' }}</td>
+<td class="n">{% if not r.prev_sales %}<span class="muted">前年データなし</span>{% else %}{{ ui.delta(r.sales, r.prev_sales) }}{% endif %}</td></tr>{% endfor %}
+</table><p class="small"><a href="/menu?clinic={{ clinic.code }}&view=year&year={{ y }}">メニュー分析で詳しく見る →</a></p></div>
+<script>
+const pal=['#2457c5','#1f8a4c','#b26a00','#7a5af8','#c0392b','#0e7490','#a16207','#be185d'];let i=0;
+const ds=[{type:'line',label:'売上（手数料抜き）',data:{{ chart.sales|tojson }},borderColor:'#18233a',backgroundColor:'#18233a',tension:.2}];
+Object.entries({{ chart.menus|tojson }}).forEach(([k,v])=>ds.push({type:'bar',label:k,data:v,backgroundColor:pal[i++%8],stack:'m'}));
+new Chart(document.getElementById('ch'),{data:{labels:{{ chart.labels|tojson }},datasets:ds},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}},plugins:{tooltip:{mode:'index'},legend:{position:'bottom',labels:{boxWidth:12,font:{size:11}}}}}});
+</script>
+
+{# ============================ 月次 ============================ #}
+{% else %}
+<form class="filters"><input type="hidden" name="view" value="month"><label>月<input type="month" name="month" value="{{ '%04d-%02d'|format(y, m) }}"></label><button>表示</button>
+  <a href="/reports/monthly?month={{ '%04d-%02d'|format(y, m) }}&clinic={{ clinic.code }}">他院と比較</a></form>
+<div class="kpis">
+{% for k in kpis if k in totals %}{% set md = metrics[k] %}<div class="kpi"><div class="l">{{ md.name }}（{{ '月累計' if running else '月合計' }}）</div><div class="v">{{ ui.total(totals[k], md.unit) }}</div>
+  {% if k == 'sales_net' and target %}<div class="small">目標 {{ target|fmt }}　達成率 {{ '%.1f'|format((totals[k].value or 0) / target * 100) }}%</div>{% endif %}
+  <div class="small muted">{{ totals[k].coverage_note }}</div></div>{% endfor %}
+</div>
+<div class="grid" style="margin-top:12px">
   <div class="card"><h2>率（分子・分母の合計から計算）</h2>
     <table class="small">
       <tr><td>平均単価（売上（手数料抜き）÷来院者合計）</td><td class="n">{% if rates.unit_price.value is not none %}{{ rates.unit_price.value|fmt }}円{% else %}算出不可{% endif %}</td></tr>
       <tr><td class="muted" colspan="2">対象 {{ rates.unit_price.days }}日（両方の値がある日のみ）</td></tr>
       <tr><td>新規契約率（院報告の契約数÷新規来院数）</td><td class="n">{% if rates.new_contract.value is not none %}{{ '%.1f'|format(rates.new_contract.value*100) }}%{% else %}算出不可{% endif %}</td></tr>
       <tr><td class="muted" colspan="2">※契約は新規以外を含む可能性があるため「成約率」とは呼びません。対象 {{ rates.new_contract.days }}日</td></tr>
-    </table>
-  </div>
-  {% if cats %}<div class="card"><h2>カテゴリ別売上の構成</h2>
-    {% set tot = cats.values()|sum %}<table class="small">{% for k, v in cats.items() %}<tr><td>{{ k }}</td><td class="n">{{ v|fmt }}</td><td class="n">{{ '%.1f'|format(v / tot * 100 if tot else 0) }}%</td></tr>{% endfor %}</table></div>{% endif %}
+    </table></div>
+  <div class="card"><h2>売れているメニュー（上位10）</h2>
+  {% set tot = menus|sum(attribute='sales') %}
+  {% if tot %}<table class="small"><tr><th>区分</th><th>メニュー</th><th class="n">売上</th><th>構成比</th><th class="n">{{ '前月同期間比' if running else '前月比' }}</th></tr>
+  {% for r in menus[:10] %}<tr><td>{{ r.market }}</td><td>{{ r.name }}</td><td class="n">{{ r.sales|fmt }}</td>
+  <td style="min-width:90px"><div class="bar"><i style="width:{{ (r.sales / tot * 100) if tot else 0 }}%"></i></div><span class="small">{{ '%.1f'|format(r.sales / tot * 100) }}%</span></td>
+  <td class="n">{% if not r.prev_sales %}<span class="muted">—</span>{% else %}{{ ui.delta(r.sales, r.prev_sales) }}{% endif %}</td></tr>{% endfor %}</table>
+  <p class="small"><a href="/menu?clinic={{ clinic.code }}&month={{ '%04d-%02d'|format(y, m) }}">メニュー分析で詳しく見る →</a></p>
+  {% else %}<p class="muted small">この月のメニュー別売上の記録がありません</p>{% endif %}</div>
 </div>
-
-<div class="card"><canvas id="ch" height="90"></canvas></div>
-
+<div class="card"><div style="position:relative;height:320px"><canvas id="ch"></canvas></div></div>
 <div class="card scroll">
 <table class="small">
 <tr><th>日付</th><th>状態</th>{% for k in shown %}<th class="n">{{ metrics[k].name }}</th>{% endfor %}<th>元投稿</th></tr>
 {% for day in days %}{% set sts = st.get((clinic.code, day)) %}
-<tr class="{% if sts and sts.status=='closed' %}cell-closed{% elif sts and sts.status in ('missing','failed') %}cell-missing{% endif %}">
-  <td>{{ day.strftime('%m/%d') }}（{{ day|wd }}）</td><td>{{ ui.status(sts) }}</td>
+<tr class="{% if sts and sts.status in ('closed','preopen') %}cell-closed{% elif sts and sts.status in ('missing','failed') %}cell-missing{% endif %}">
+  <td><a href="?view=day&day={{ day }}">{{ day.strftime('%m/%d') }}（{{ day|wd }}）</a></td><td>{{ ui.status(sts) }}</td>
   {% for k in shown %}{{ ui.fcell(facts.get((day, k)), clinic.code, day, k, metrics[k].unit) }}{% endfor %}
   <td>{% if day in reports %}{% set r, p = reports[day] %}<a href="{{ p.url }}" target="_blank" rel="noopener">Talknote</a>{% endif %}</td>
 </tr>{% endfor %}
 </table>
-<p class="small muted">「—」は値なし（未提出・未記載・休診）です。0として扱いません。<sup>要</sup>＝要確認、<sup>暫</sup>＝暫定。数値をクリックすると抽出根拠を表示します。</p>
+<p class="small muted">「—」は値なし（未提出・未記載・休診・開院前）です。0として扱いません。<sup>要</sup>＝要確認、<sup>暫</sup>＝暫定。日付をクリックすると日次、数値をクリックすると抽出根拠を表示します。</p>
 </div>
 <script>
 new Chart(document.getElementById('ch'),{type:'bar',data:{labels:{{ chart.labels|tojson }},datasets:[
  {label:'売上（手数料抜き）',data:{{ chart.sales|tojson }},backgroundColor:'#2457c5'},
- {label:'入金',data:{{ chart.receipt|tojson }},backgroundColor:'#9db4e8'}]},options:{responsive:true,scales:{y:{beginAtZero:true}}}});
+ {label:'入金',data:{{ chart.receipt|tojson }},backgroundColor:'#9db4e8'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}});
 </script>
+{% endif %}
 {% endblock %}

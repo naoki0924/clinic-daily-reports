@@ -579,6 +579,14 @@ def _consistency(s, tracker: IssueTracker, clinic: str, d: date, post_id: int) -
     xs = {o.metric: _num(o) for o in s.scalars(select(Observation).where(
         Observation.post_id == post_id, Observation.target_date == d, Observation.source_kind == "excel",
         Observation.market == "", Observation.category == "", Observation.method == ""))}
+    parts = [_num(o) for o in s.scalars(select(Observation).where(
+        Observation.post_id == post_id, Observation.target_date == d, Observation.source_kind == "excel",
+        Observation.metric == "market_sales_net")) if _num(o) is not None]
+    if parts and xs.get("sales_net") is not None and abs(sum(parts) - xs["sales_net"]) > 0.5:
+        tracker.add("market_split", clinic=clinic, kind="inconsistency", target_date=d, post_id=post_id,
+                    metric="market_sales_net",
+                    title=f"Excelの国内・インバウンド等の合計 {sum(parts):,.0f}円 が 売上（手数料抜き） {xs['sales_net']:,.0f}円 と一致しません（列の読み違い・書式変更の疑い）",
+                    detail={"parts_sum": sum(parts), "sales_net": xs["sales_net"]})
     if xs.get("sales_gross") is not None and xs.get("sales_net") is not None and xs["sales_net"] > xs["sales_gross"] + 0.5:
         tracker.add("gross_net", clinic=clinic, kind="inconsistency", target_date=d, post_id=post_id, metric="sales_net",
                     title="Excelの売上（手数料抜き）が手数料込みを上回っています",

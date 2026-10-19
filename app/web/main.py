@@ -361,7 +361,8 @@ def clinic_detail(request: Request, code: str, view: str = "month", month: str |
                 for x in Q.statuses(s, [code], a, min(b, yesterday)).values():
                     cnt[x.status] += 1
             status_by_month[p] = dict(cnt)
-        ctx.update(y=y, periods=periods, cur=cur, last=last, ytd=ytd, lytd=lytd, running=running, cmp_end=cmp_end,
+        mshare = M.market_share(s, [code], date(y, 1, 1), cmp_end).get(code, {})
+        ctx.update(mshare=mshare, y=y, periods=periods, cur=cur, last=last, ytd=ytd, lytd=lytd, running=running, cmp_end=cmp_end,
                    menus=menus, chart=chart, status_by_month=status_by_month)
         return render(request, "clinic.html", ctx, s, u)
 
@@ -385,7 +386,8 @@ def clinic_detail(request: Request, code: str, view: str = "month", month: str |
     chart = {"labels": [d.strftime("%m/%d") for d in days],
              "sales": [facts.get((d, "sales_net")).value if facts.get((d, "sales_net")) else None for d in days],
              "receipt": [facts.get((d, "receipt")).value if facts.get((d, "receipt")) else None for d in days]}
-    ctx.update(y=y, m=m, days=days, facts=facts, st=st, shown=shown, totals=totals, rates=rates, menus=menus,
+    mshare = M.market_share(s, [code], start, pe_).get(code, {})
+    ctx.update(mshare=mshare, y=y, m=m, days=days, facts=facts, st=st, shown=shown, totals=totals, rates=rates, menus=menus,
                reports=reports, chart=chart, target=ag.target_value(s, code, y, m, "sales_net"), running=running)
     return render(request, "clinic.html", ctx, s, u)
 
@@ -420,6 +422,31 @@ def menu_analysis(request: Request, clinic: str = "", view: str = "month", month
         clinics=Q.clinics(s, codes), clinic=clinic, view=view, y=y, m=m, label=label, prev=prev, prev_label=prev_label,
         rows=rows, total=total, split=M.market_split(rows), insights=M.insights(rows, prev_label), cpc=cpc, vc=vc,
         market=market, markets=markets, months=months, trend=trend[:10], running=running, end=end), s, u)
+
+
+@app.get("/market", response_class=HTMLResponse)
+def market_view(request: Request, view: str = "year", month: str | None = None, year: int | None = None,
+                s=Depends(get_db), u=Depends(current_user)):
+    """国内／インバウンド別の構成（円グラフ）。全院と各院。"""
+    from .. import menu as M
+
+    today = ag.today_jst()
+    yesterday = today - timedelta(days=1)
+    codes = allowed_codes(s, u)
+    if view == "month":
+        y, m = _ym(month, yesterday)
+    else:
+        view, y, m = "year", (year or yesterday.year), 1
+    start, end, prev, label, running = M.period_range(view, y, m, today)
+    share = M.market_share(s, codes, start, end)
+    prev_share = M.market_share(s, codes, prev[0], prev[1])
+    monthly = M.market_monthly(s, codes, start.year)
+    monthly_by = {c: M.market_monthly(s, [c], start.year) for c in codes}
+    return render(request, "market.html", dict(
+        pies=[("ALL", "全院合計")] + [(c.code, c.name) for c in Q.clinics(s, codes)],
+        clinics=Q.clinics(s, codes), view=view, y=y, m=m, label=label, prev=prev, running=running,
+        share=share, prev_share=prev_share, months=M.months_of(start.year), monthly=monthly, monthly_by=monthly_by,
+        review=M.review_days(s, codes, start, end), order=M.MARKET_ORDER), s, u)
 
 
 def _filters(request: Request):

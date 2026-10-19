@@ -4,6 +4,13 @@
 .tabs a.on{background:#fff;border-color:var(--line);color:var(--ink);font-weight:600;margin-bottom:-1px}
 .kpis{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.kpi{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .kpi .l{font-size:12px;color:var(--muted)}.kpi .v{font-size:20px;font-weight:700;margin:2px 0}.bar{height:8px;background:#e8edf7;border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--accent)}</style>{% endblock %}
+{% macro market_pie(d) %}{% set tot = d.values()|sum %}
+<div class="card"><h2>国内／インバウンド比率（売上（手数料抜き）の内訳）</h2>
+{% if tot %}<div style="position:relative;height:200px"><canvas id="mpie"></canvas></div>
+<table class="small">{% for mk, v in d.items() %}<tr><td>{{ mk }}</td><td class="n">{{ v|fmt }}</td><td class="n"><b>{{ '%.1f'|format(v / tot * 100) }}%</b></td></tr>{% endfor %}</table>
+<script>(()=>{const d={{ d|tojson }},c={'国内':'#2457c5','インバウンド':'#e07b39','クーポン経由':'#1f8a4c','植毛':'#7a5af8'},l=Object.keys(d),v=Object.values(d),t=v.reduce((a,b)=>a+b,0);
+new Chart(document.getElementById('mpie'),{type:'pie',data:{labels:l,datasets:[{data:v,backgroundColor:l.map(x=>c[x]||'#999'),borderColor:'#fff',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right'},tooltip:{callbacks:{label:x=>`${x.label}: ${x.parsed.toLocaleString()}円（${(x.parsed/t*100).toFixed(1)}%）`}}}}})})();</script>
+{% else %}<p class="muted small">この期間のデータがありません</p>{% endif %}</div>{% endmacro %}
 {% block content %}
 {% set yday = today - timedelta(days=1) %}
 <h1>{{ clinic.name }}{% if clinic.open_from %} <span class="badge b-preopen">開院 {{ clinic.open_from }}</span>{% endif %}</h1>
@@ -11,7 +18,8 @@
   <a href="/clinic/{{ clinic.code }}?view=day" class="{{ 'on' if view=='day' }}">日次</a>
   <a href="/clinic/{{ clinic.code }}?view=month" class="{{ 'on' if view not in ('day','year') }}">月次</a>
   <a href="/clinic/{{ clinic.code }}?view=year" class="{{ 'on' if view=='year' }}">年次</a>
-  <a href="/menu?clinic={{ clinic.code }}" style="margin-left:auto">メニュー分析 →</a>
+  <a href="/market?view={{ 'month' if view=='day' else (view if view in ('month','year') else 'month') }}" style="margin-left:auto">国内/インバウンド →</a>
+  <a href="/menu?clinic={{ clinic.code }}">メニュー分析 →</a>
 </div>
 
 {# ============================ 日次 ============================ #}
@@ -56,6 +64,7 @@
 {% for k, t in ytd.items() %}{% set md = metrics[k] %}<div class="kpi"><div class="l">{{ md.name }}（年間累計）</div><div class="v">{{ ui.total(t, md.unit) }}</div>
   <div class="small">{% if lytd[k].days_with_value %}前年同期間 {{ lytd[k].value|fmt(md.unit) }}（{{ ui.delta(t.value, lytd[k].value) }}）{% else %}<span class="muted">前年データなし</span>{% endif %}</div></div>{% endfor %}
 </div>
+<div class="grid" style="margin-top:12px">{{ market_pie(mshare) }}</div>
 <div class="card" style="margin-top:12px"><h2>月別推移（線：売上（手数料抜き）、棒：上位メニュー）</h2><div style="position:relative;height:340px"><canvas id="ch"></canvas></div></div>
 <div class="card scroll"><table class="small"><tr><th>月</th>{% for k in kpis %}<th class="n">{{ metrics[k].name }}</th>{% endfor %}<th>提出状況</th></tr>
 {% for p in periods %}<tr><td><a href="?view=month&month={{ p }}">{{ p }}</a></td>
@@ -94,6 +103,7 @@ new Chart(document.getElementById('ch'),{data:{labels:{{ chart.labels|tojson }},
       <tr><td>新規契約率（院報告の契約数÷新規来院数）</td><td class="n">{% if rates.new_contract.value is not none %}{{ '%.1f'|format(rates.new_contract.value*100) }}%{% else %}算出不可{% endif %}</td></tr>
       <tr><td class="muted" colspan="2">※契約は新規以外を含む可能性があるため「成約率」とは呼びません。対象 {{ rates.new_contract.days }}日</td></tr>
     </table></div>
+  {{ market_pie(mshare) }}
   <div class="card"><h2>売れているメニュー（上位10）</h2>
   {% set tot = menus|sum(attribute='sales') %}
   {% if tot %}<table class="small"><tr><th>区分</th><th>メニュー</th><th class="n">売上</th><th>構成比</th><th class="n">{{ '前月同期間比' if running else '前月比' }}</th></tr>

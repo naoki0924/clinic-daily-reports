@@ -133,9 +133,13 @@ def _layout(ws, rule: dict, year: int, month: int) -> SheetLayout:
     columns: list[dict] = []
     missing_required, missing_optional = [], []
     for i, cr in enumerate(rule.get("cells", [])):
-        cols = _match_cols(labels, cr["rows"])
-        key = f"{cr['metric']}{json.dumps(cr.get('dims', {}), ensure_ascii=False, sort_keys=True)}"
         n = cr.get("occurrence", 1)
+        cols = []
+        for spec in [cr["rows"], *cr.get("alt_rows", [])]:  # 書式の版ごとの見出しの候補
+            cols = _match_cols(labels, spec)
+            if len(cols) >= n:
+                break
+        key = f"{cr['metric']}{json.dumps(cr.get('dims', {}), ensure_ascii=False, sort_keys=True)}"
         if len(cols) < n:
             (missing_required if cr.get("required") else missing_optional).append(
                 f"{cr['metric']}({'/'.join(sum(cr['rows'].values(), []))})")

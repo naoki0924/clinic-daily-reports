@@ -20,6 +20,9 @@ METRICS: list[dict] = [
          cross_clinic_sum=False, description="BiO STYLE CLINIC本文の『●売上』。グループ内CPC受託を含むため全院合計に使わない。"),
     dict(code="sales_actual", name="実売（手数料差引・グループ内CPC除く）", unit="yen", fee_basis="excl", internal_tx="excl",
          cross_clinic_sum=False, description="BiO STYLE CLINIC本文の『●実売』。"),
+    dict(code="market_sales_net", name="売上（手数料抜き）国内／インバウンド別", unit="yen", fee_basis="excl", internal_tx="incl",
+         cross_clinic_sum=True,
+         description="各院Excelの国内・インバウンド等の合計列（手数料抜き）。数式上、区分の合計＝売上（手数料抜き）。"),
     dict(code="receipt", name="入金", unit="yen", cross_clinic_sum=True,
          description="当日の入金合計。各院Excelの『入金合計』の数式で確認：現金＋クレジット等＋振込＋デポジット（大阪はクーポン手数料を控除）。"),
     dict(code="receipt_excl_deposit", name="入金（デポジット除く）", unit="yen", cross_clinic_sum=False,
@@ -235,6 +238,10 @@ EXCEL_RULES: dict[str, dict] = {
             _c("payment", {"0": ["WechatPay"]}, dims={"method": "WeChatPay"}),
             _c("payment", {"0": ["Alipay"]}, dims={"method": "Alipay"}),
             *_COMMON_PAY,
+            # 国内／インバウンド別（売上計※手数料抜 ＝ 国内売上計 ＋ インバウンド計(手数料抜き) ＋ 植毛計(手数料抜き)）
+            _c("market_sales_net", {"-2": ["国内売上計"], "0": ["売上"]}, dims={"market": "国内"}),
+            _c("market_sales_net", {"0": ["売上(手数料抜き)"]}, occurrence=1, dims={"market": "インバウンド"}),
+            _c("market_sales_net", {"-2": ["植毛計"], "0": ["売上(手数料抜き)"]}, dims={"market": "植毛"}),
         ],
         "category": [
             {"group_row": "-2", "cat_row": "-1", "measure_row": "0",
@@ -255,6 +262,9 @@ EXCEL_RULES: dict[str, dict] = {
             _c("sales_net", {"0": ["売上合計", "手数料抜"]}, required=True),
             _c("receipt", {"0": ["入金合計"]}, required=True),
             *_COMMON_PAY,
+            # 売上合計※手数料抜き ＝ 国内売上合計(手数料抜き) ＋ 売上合計(インバウンド)(手数料抜き)
+            _c("market_sales_net", {"-1": ["国内売上合計"], "0": ["売上(手数料抜き)"]}, dims={"market": "国内"}),
+            _c("market_sales_net", {"-1": ["売上合計(インバウンド)"], "0": ["売上(手数料抜き)"]}, dims={"market": "インバウンド"}),
         ],
         "category": [
             {"group_row": "-2", "cat_row": "-1", "measure_row": "0",
@@ -276,6 +286,11 @@ EXCEL_RULES: dict[str, dict] = {
             _c("sales_net", {"0": ["国内+インバウンド", "手数料抜"]}, required=True),
             _c("receipt", {"0": ["入金合計"]}, required=True),
             *_COMMON_PAY,
+            # 国内+インバウンド(手数料抜き) ＝ 国内計 合計 ＋ インバウンド計 (手数料抜き)
+            # 2026/7以前の書式は「国内計 / 売上」、8月以降は「国内計 / 合計」
+            {**_c("market_sales_net", {"-3": ["国内計"], "0": ["合計"]}, occurrence=1, dims={"market": "国内"}),
+             "alt_rows": [{"-3": ["国内計"], "0": ["売上"]}]},
+            _c("market_sales_net", {"-3": ["インバウンド計"], "0": ["(手数料抜き)"]}, occurrence=1, dims={"market": "インバウンド"}),
         ],
         "category": [
             {"group_row": "-2", "cat_row": "-1", "measure_row": "0",
@@ -303,6 +318,10 @@ EXCEL_RULES: dict[str, dict] = {
             _c("visitors_new", {"0": ["新規来院数"]}, occurrence=2, dims={"market": "インバウンド"}),
             _c("contracts", {"0": ["新規成約数"]}, occurrence=2, dims={"market": "インバウンド"}),
             _c("visitors_existing", {"0": ["既存人数"]}, occurrence=2, dims={"market": "インバウンド"}),
+            # 国内+インバウンド(手数料抜き) ＝ 国内売上合計 ＋ インバウンド(手数料抜き) ＋ クーポン分(手数料抜き)
+            _c("market_sales_net", {"-1": ["国内売上合計"]}, occurrence=1, dims={"market": "国内"}),
+            _c("market_sales_net", {"0": ["売上(手数料抜き)"]}, occurrence=1, dims={"market": "インバウンド"}),
+            _c("market_sales_net", {"-1": ["売上合計(クーポン分)"], "0": ["売上合計(手数料抜き)"]}, dims={"market": "クーポン経由"}),
         ],
         "category": [
             {"group_row": "-1", "cat_row": "0", "measure_row": None,

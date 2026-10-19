@@ -183,3 +183,44 @@ def days_between(a: date, b: date):
     while d <= b:
         yield d
         d += timedelta(days=1)
+
+
+# ---------------------------------------------------------------------------
+# 国内／インバウンド別の構成（売上（手数料抜き）の内訳）
+# ---------------------------------------------------------------------------
+MARKET_ORDER = ["国内", "インバウンド", "クーポン経由", "植毛"]
+
+
+def market_share(s, codes: list[str], start: date, end: date) -> dict[str, dict[str, float]]:
+    """院ごとの {区分: 金額}。要確認の日は除く。院をまたいだ合計は "ALL"。"""
+    out: dict[str, dict[str, float]] = {c: defaultdict(float) for c in codes}
+    for f in s.scalars(select(DailyFact).where(DailyFact.clinic_code.in_(codes), DailyFact.metric == "market_sales_net",
+                                               DailyFact.target_date >= start, DailyFact.target_date <= end,
+                                               DailyFact.value.isnot(None), DailyFact.status != "review")):
+        out[f.clinic_code][f.market] += f.value
+    allm: dict[str, float] = defaultdict(float)
+    for c in codes:
+        for k, v in out[c].items():
+            allm[k] += v
+    out["ALL"] = allm
+    return {c: {k: v for k, v in sorted(d.items(), key=lambda kv: (MARKET_ORDER.index(kv[0]) if kv[0] in MARKET_ORDER else 9))
+                if v} for c, d in out.items()}
+
+
+def market_monthly(s, codes: list[str], y: int) -> dict[str, dict[str, float]]:
+    """{"YYYY-MM": {区分: 金額}}（指定院の合計）。"""
+    out: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for f in s.scalars(select(DailyFact).where(DailyFact.clinic_code.in_(codes), DailyFact.metric == "market_sales_net",
+                                               DailyFact.target_date >= date(y, 1, 1), DailyFact.target_date <= date(y, 12, 31),
+                                               DailyFact.value.isnot(None), DailyFact.status != "review")):
+        out[f.target_date.strftime("%Y-%m")][f.market] += f.value
+    return {k: dict(v) for k, v in out.items()}
+
+
+def review_days(s, codes: list[str], start: date, end: date) -> dict[str, int]:
+    out = defaultdict(set)
+    for f in s.scalars(select(DailyFact).where(DailyFact.clinic_code.in_(codes), DailyFact.metric == "market_sales_net",
+                                               DailyFact.target_date >= start, DailyFact.target_date <= end,
+                                               DailyFact.status == "review")):
+        out[f.clinic_code].add(f.target_date)
+    return {k: len(v) for k, v in out.items()}

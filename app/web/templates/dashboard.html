@@ -26,7 +26,7 @@
 {% for c in d.cards %}
   <div class="card">
     <h2><a href="/clinic/{{ c.clinic.code }}">{{ c.clinic.name }}</a> {{ ui.status(c.status) }}</h2>
-    <div class="small" style="margin:-6px 0 6px"><a href="/clinic/{{ c.clinic.code }}?view=day&day={{ d.day }}">日次</a>｜<a href="/clinic/{{ c.clinic.code }}?view=month">月次</a>｜<a href="/clinic/{{ c.clinic.code }}?view=year">年次</a>｜<a href="/menu?clinic={{ c.clinic.code }}">メニュー分析</a></div>
+    <div class="small" style="margin:-6px 0 6px"><a href="/clinic/{{ c.clinic.code }}?view=day&day={{ d.day }}">日次</a>｜<a href="/clinic/{{ c.clinic.code }}?view=month">月次</a>｜<a href="/clinic/{{ c.clinic.code }}?view=year">年次</a>｜<a href="/menu?clinic={{ c.clinic.code }}">メニュー分析</a>｜<a href="/market?view=month">国内/インバウンド</a></div>
     {% set s = c.m.sales_net %}
     <div class="big">{% if s.fact %}<a href="/evidence?clinic={{ c.clinic.code }}&day={{ d.day }}&metric=sales_net">{{ fact_text(s.fact) }}</a>{% if s.fact.status != 'confirmed' %} <span class="badge b-{{ s.fact.status }}">{{ FACT_STATUS[s.fact.status] }}</span>{% endif %}{% else %}<span class="muted" style="font-size:15px">{% if c.status and c.status.status in ('missing','closed','failed') %}{{ STATUS_LABEL[c.status.status] }}{% else %}売上（手数料抜き）の記載なし{% endif %}</span>{% endif %}</div>
     <div class="small muted">売上（手数料抜き）　前日比 {{ ui.delta(s.fact.value if s.fact else None, s.prev) }}／前週同曜日比 {{ ui.delta(s.fact.value if s.fact else None, s.wk) }}</div>

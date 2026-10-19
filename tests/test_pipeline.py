@@ -359,3 +359,25 @@ def test_menu_analysis_ranks_categories_and_normalizes_names():
     assert M.menu_name("NK細胞(¥171,600/件)※NKバンキング6検体で1件扱い") == "NK細胞"
     assert M.menu_name("SCCL上清液(¥26400円/本)") == "SCCL上清液"
     assert M.menu_name("脱毛関連(カウンセリング含む)") == "脱毛関連(カウンセリング含む)"  # 金額のない括弧は残す
+
+
+def test_market_split_from_excel_and_share():
+    """国内／インバウンド別：Excelの区分合計列を読み、区分の合計＝売上（手数料抜き）を照合する。"""
+    from app import menu as M
+    import io
+    from openpyxl import load_workbook
+    d = date(2026, 10, 16)
+    data = workbook_9ru({d: v(100000, 100000, 100000)}, [OCT])
+    wb = load_workbook(io.BytesIO(data))
+    ws = wb["2026年10月"]
+    ws["BJ5"], ws["CK5"], ws["CK3"] = "売上", "売上(手数料抜き)", ""
+    r = 6 + d.day - 1
+    ws[f"BJ{r}"], ws[f"CK{r}"] = 30000, 70000
+    out = io.BytesIO(); wb.save(out)
+    with session_scope() as s:
+        p = add_post(s, "9ru", 500, datetime(2026, 10, 16, 18, 0), body_9ru(d, 100000, 100000), out.getvalue())
+        run(s, [p], [("9ru", d)])
+        sh = M.market_share(s, ["9ru"], date(2026, 10, 1), date(2026, 10, 31))
+        assert sh["9ru"] == {"国内": 30000, "インバウンド": 70000}
+        assert sh["ALL"]["インバウンド"] == 70000
+        assert s.scalar(select(Issue).where(Issue.title.like("%国内・インバウンド等の合計%"))) is None

@@ -1,9 +1,9 @@
 {% extends "base.html" %}{% import "_m.html" as ui with context %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<style>.pies{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}.pie-box{position:relative;height:220px}
+{% block head %}
+<style>.pies{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}.pie-box{position:relative;height:220px}.pies table td,.pies table th{white-space:nowrap;padding:6px 6px}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}</style>{% endblock %}
 {% block content %}
-{% set colors = {'国内':'#2457c5','インバウンド':'#e07b39','クーポン経由':'#1f8a4c','植毛':'#7a5af8'} %}
+{% set colors = {'国内':'#1f5a6b','インバウンド':'#3aa0a6','クーポン経由':'#93cfb3','植毛':'#2a2f33'} %}
 <h1>国内／インバウンド比率 <span class="muted small">{{ label }}</span></h1>
 <form class="filters">
   <label>期間<select name="view"><option value="year" {% if view=='year' %}selected{% endif %}>年</option><option value="month" {% if view=='month' %}selected{% endif %}>月</option></select></label>
@@ -17,7 +17,7 @@
 <div class="pies">
 {% for key, title in pies %}
 {% set d = share.get(key, {}) %}{% set tot = d.values()|sum %}{% set pd = prev_share.get(key, {}) %}{% set ptot = pd.values()|sum %}
-<div class="card" {% if key=='ALL' %}style="border-color:#9db4e8"{% endif %}>
+<div class="card" {% if key=='ALL' %}style="border-top:3px solid var(--deep)"{% endif %}>
   <h2>{% if key != 'ALL' %}<a href="/clinic/{{ key }}?view={{ view }}">{{ title }}</a>{% else %}{{ title }}{% endif %}</h2>
   {% if tot %}<div class="pie-box"><canvas id="pie_{{ key }}"></canvas></div>
   <table class="small" style="margin-top:6px"><tr><th>区分</th><th class="n">金額</th><th class="n">比率</th><th class="n">比較期間</th></tr>
@@ -41,15 +41,15 @@
 <td class="n">{{ '%.1f'|format(d.get('インバウンド', 0) / tot * 100) ~ '%' if tot else '—' }}</td></tr>{% endfor %}</table></div>
 
 <script>
-const colors={{ colors|tojson }};
+const colors=window.MARKET_COLORS;
 const share={{ share|tojson }};
 Object.entries(share).forEach(([k,d])=>{const el=document.getElementById('pie_'+k); if(!el) return; const labels=Object.keys(d), vals=Object.values(d), tot=vals.reduce((a,b)=>a+b,0);
- new Chart(el,{type:'pie',data:{labels,datasets:[{data:vals,backgroundColor:labels.map(l=>colors[l]||'#999'),borderColor:'#fff',borderWidth:2}]},
-  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>`${c.label}: ${c.parsed.toLocaleString()}円（${(c.parsed/tot*100).toFixed(1)}%）`}}}}});});
+ new Chart(el,{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:labels.map(l=>colors[l]||'#999'),borderColor:'#fff',borderWidth:2}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.label}: ${c.parsed.toLocaleString()}円（${(c.parsed/tot*100).toFixed(1)}%）`}}}}});});
 const months={{ months|tojson }}, byc={{ monthly_by|tojson }}, all={{ monthly|tojson }}, names={{ clinics|map(attribute='name')|list|tojson }}, codes={{ clinics|map(attribute='code')|list|tojson }};
 const ratio=m=>{if(!m) return null; const t=Object.values(m).reduce((a,b)=>a+b,0); return t? +(100*(m['インバウンド']||0)/t).toFixed(1):null};
-const pal=['#2457c5','#1f8a4c','#b26a00','#7a5af8'];
-const ds=[{label:'全院合計',data:months.map(mo=>ratio(all[mo])),borderColor:'#18233a',backgroundColor:'#18233a',borderWidth:3,tension:.2}]
+const pal=window.PAL;
+const ds=[{label:'全院合計',data:months.map(mo=>ratio(all[mo])),borderColor:'#2a2f33',backgroundColor:'#2a2f33',borderWidth:3,tension:.2}]
  .concat(codes.map((c,i)=>({label:names[i],data:months.map(mo=>ratio((byc[c]||{})[mo])),borderColor:pal[i%4],backgroundColor:pal[i%4],tension:.2,spanGaps:false})));
 new Chart(document.getElementById('trend'),{type:'line',data:{labels:months.map(x=>x.slice(5)+'月'),datasets:ds},
  options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%'}}},plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y}%`}}}}});

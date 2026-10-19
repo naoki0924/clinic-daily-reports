@@ -204,18 +204,7 @@ def process_post(s, post: SourcePost) -> set[tuple[str, date]]:
         try:
             wb = _load_wb(primary, xl_rule, months, xl_ver)
             primary.status, primary.error = "parsed", ""
-            prev_sig = primary.format_signature
-            primary.format_signature, primary.parsed_rule_version = wb.signature, xl_ver
-            last = s.scalar(select(SourceFile).join(SourcePost, SourceFile.post_pk == SourcePost.id)
-                            .where(SourcePost.clinic_code == clinic, SourceFile.format_signature != "",
-                                   SourceFile.file_id != primary.file_id, SourceFile.attached_at < primary.attached_at)
-                            .order_by(SourceFile.attached_at.desc()))
-            if last and last.format_signature != wb.signature and prev_sig != wb.signature:
-                tracker.add("fmtchange", clinic=clinic, kind="excel_format", severity="info", post_id=post.post_id,
-                            file_id=primary.file_id,
-                            title="Excelの列構成が前回と変わりました（見出しで列を特定して読み取り済み。値を確認してください）",
-                            detail={"previous_file": last.file_id, "previous_signature": last.format_signature,
-                                    "signature": wb.signature})
+            primary.parsed_rule_version = xl_ver
             for i, w in enumerate(wb.warnings[:10]):
                 tracker.add(f"xlwarn{i}", clinic=clinic, kind="excel_format", severity="info", post_id=post.post_id,
                             file_id=primary.file_id, title=f"Excelの注意: {w}")
@@ -328,6 +317,21 @@ def process_post(s, post: SourcePost) -> set[tuple[str, date]]:
                     s.add(CalendarFlag(clinic_code=clinic, target_date=d, closed=True,
                                        source=f"{primary.file_name} / {drow.row}行目"))
     report.is_closed_day = closed
+
+    # 書式変更の検知：同じ版のルールで読んだ直前の添付と、対象月シートの列構成を比べる
+    if wb and primary and (target.year, target.month) in wb.layouts:
+        sig = wb.layouts[(target.year, target.month)].signature
+        primary.format_signature = sig
+        last = s.scalar(select(SourceFile).join(SourcePost, SourceFile.post_pk == SourcePost.id)
+                        .where(SourcePost.clinic_code == clinic, SourceFile.format_signature != "",
+                               SourceFile.parsed_rule_version == xl_ver, SourceFile.file_id != primary.file_id,
+                               SourceFile.attached_at < primary.attached_at)
+                        .order_by(SourceFile.attached_at.desc()))
+        if last and last.format_signature != sig:
+            tracker.add("fmtchange", clinic=clinic, kind="excel_format", severity="info", post_id=post.post_id,
+                        file_id=primary.file_id, target_date=target,
+                        title="Excelの列構成が前回の添付と変わりました（見出しで列を特定して読み取り済み。値を確認してください）",
+                        detail={"previous_file": last.file_id, "previous_signature": last.format_signature, "signature": sig})
 
     for c in s.scalars(select(SourceComment).where(SourceComment.post_id == post.post_id)):
         if c.is_correction_hint:
@@ -661,7 +665,8 @@ def reprocess(s, clinic_codes: list[str], start: date, end: date) -> set[tuple[s
     affected: set[tuple[str, date]] = set()
     posts = s.scalars(select(SourcePost).where(SourcePost.clinic_code.in_(clinic_codes),
                                                SourcePost.posted_at >= datetime.combine(start - timedelta(days=3), datetime.min.time()),
-                                               SourcePost.posted_at < datetime.combine(end + timedelta(days=45), datetime.min.time()))).all()
+                                               SourcePost.posted_at < datetime.combine(end + timedelta(days=45), datetime.min.time()))
+                        .order_by(SourcePost.posted_at)).all()  # 書式比較のため投稿日時の順に処理
     for p in posts:
         affected |= process_post(s, p)
     s.flush()

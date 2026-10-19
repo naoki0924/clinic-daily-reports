@@ -1,19 +1,57 @@
 {% extends "base.html" %}{% import "_m.html" as ui with context %}
 {% block content %}
-<h1>全院ダッシュボード <span class="muted small">{{ d.day }}（{{ d.day|wd }}）の実績</span></h1>
+<h1>Dashboard <span class="muted small">全院・{{ d.day }}（{{ d.day|wd }}）時点</span></h1>
+
+{% macro ring(pct, value, sub, label, href) %}{% set p = [[pct or 0, 0]|max, 100]|min %}
+<a class="ring" href="{{ href }}" style="color:inherit;text-decoration:none">
+<svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="#e6efed" stroke-width="5"/>
+<circle cx="60" cy="60" r="52" fill="none" stroke="#1f5a6b" stroke-width="5" stroke-linecap="round" stroke-dasharray="{{ '%.1f'|format(p * 3.267) }} 326.7" transform="rotate(-90 60 60)"/>
+<text x="60" y="60" text-anchor="middle" font-size="21" font-weight="300" fill="#2a2f33" font-family="Roboto,Noto Sans JP">{{ value }}</text>
+<text x="60" y="80" text-anchor="middle" font-size="11" fill="#7a868a" font-family="Roboto">{{ sub }}</text></svg>
+<div class="lbl">{{ label }}</div></a>{% endmacro %}
+
+{% set tot_share = d.share.get('ALL', {}) %}{% set st_ = tot_share.values()|sum %}
+<div class="card" style="padding:24px">
+ <div style="display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:center">
+  <div style="text-align:center">
+   <div style="position:relative;width:260px;height:260px;margin:0 auto">
+    <canvas id="hero"></canvas>
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
+      <div style="font-size:44px;font-weight:300;line-height:1">{{ d.all_mtd.value|man }}</div>
+      <div style="font-size:20px;font-weight:300;font-style:italic;color:#7a868a;margin-top:6px">{% if d.all_target %}{{ '%.2f'|format((d.all_mtd.value or 0) / d.all_target * 100) }}%{% elif st_ %}{{ '%.2f'|format(tot_share.get('インバウンド', 0) / st_ * 100) }}%{% endif %}</div>
+      <div class="small muted" style="margin-top:4px">{% if d.all_target %}目標達成率{% else %}インバウンド比率{% endif %}</div>
+    </div>
+   </div>
+   <div class="small" style="margin-top:10px">{% for mk, v in tot_share.items() %}<span style="margin:0 8px"><span class="sw" style="background:{{ {'国内':'#1f5a6b','インバウンド':'#3aa0a6','クーポン経由':'#93cfb3','植毛':'#2a2f33'}.get(mk, '#999') }}"></span>{{ mk }} {{ '%.1f'|format(v / st_ * 100) }}%</span>{% endfor %}</div>
+   <div class="small muted" style="margin-top:6px">全院 売上（手数料抜き）月累計{% if d.all_mtd.provisional %} <span class="badge b-provisional" title="{{ d.all_mtd.coverage_note }}">暫定</span>{% endif %}</div>
+  </div>
+  <div>
+   <div class="rings">
+   {% set allv = d.all_mtd.value or 0 %}
+   {% for c in d.cards %}{{ ring((c.mtd.value or 0) / allv * 100 if allv else 0, c.mtd.value|man, ('%.1f'|format((c.mtd.value or 0) / allv * 100) ~ '%') if allv else '—', c.clinic.name|replace('BiO STYLE CLINIC','BiO')|replace('PREVENTION CLINIC','PREVENTION')|replace('CLINIC ',''), '/clinic/' ~ c.clinic.code ~ '?view=month') }}{% endfor %}
+   </div>
+   <table class="small" style="margin-top:18px">
+     <tr><th>比較</th><th class="n">金額</th><th class="n">差</th></tr>
+     <tr><td>前月同期間</td><td class="n">{{ ui.total(d.prev_month) }}</td><td class="n">{% if d.prev_month_cov.insufficient %}<span class="muted">データ不足</span>{% else %}{{ ui.delta(d.all_mtd.value, d.prev_month.value) }}{% endif %}</td></tr>
+     <tr><td>前年同期間</td><td class="n">{{ ui.total(d.last_year) }}</td><td class="n">{% if d.last_year.days_with_value %}{{ ui.delta(d.all_mtd.value, d.last_year.value) }}{% else %}<span class="muted">前年データなし</span>{% endif %}</td></tr>
+   </table>
+   <p class="small muted" style="margin-bottom:0">リングの数字は各院の月累計、％は全院に占める割合。全院合計は定義が統一された「売上（手数料抜き）」だけを合算しています。</p>
+  </div>
+ </div>
+</div>
+
+<div class="card"><h2>全院 売上（手数料抜き）直近30日</h2><div style="position:relative;height:240px"><canvas id="area"></canvas></div></div>
+<script>
+(()=>{const share={{ tot_share|tojson }},l=Object.keys(share),v=Object.values(share);
+ if(l.length) new Chart(document.getElementById('hero'),{type:'doughnut',data:{labels:l,datasets:[{data:v,backgroundColor:l.map(x=>window.MARKET_COLORS[x]||'#999'),borderWidth:0}]},
+  options:{cutout:'84%',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${c.parsed.toLocaleString()}円`}}}}});
+ const tr={{ d.trend|tojson }};
+ new Chart(document.getElementById('area'),{type:'line',data:{labels:tr.map(x=>x.d),datasets:[{label:'売上（手数料抜き）',data:tr.map(x=>x.v),borderColor:'#1f5a6b',backgroundColor:'rgba(58,160,166,.55)',fill:true,tension:.3,pointBorderColor:'#1f5a6b',pointBackgroundColor:'#fff',pointRadius:3,spanGaps:true}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y==null?'—':c.parsed.y.toLocaleString()+'円'}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>v>=10000?(v/10000).toLocaleString()+'万':v}}}}});
+})();
+</script>
 
 <div class="grid">
-  <div class="card">
-    <h2>全院 売上（手数料抜き）月累計</h2>
-    <div class="big">{{ ui.total(d.all_mtd) }}</div>
-    <div class="small muted">{{ d.month_start }}〜{{ d.day }}{% if d.all_mtd.coverage_note %}／{{ d.all_mtd.coverage_note }}{% endif %}</div>
-    <table class="small" style="margin-top:8px">
-      <tr><td>前月同期間（{{ d.prev_month_range[0] }}〜{{ d.prev_month_range[1] }}）</td><td class="n">{{ ui.total(d.prev_month) }}</td><td class="n">{% if d.prev_month_cov.insufficient %}<span class="muted">データ不足</span>{% else %}{{ ui.delta(d.all_mtd.value, d.prev_month.value) }}{% endif %}</td></tr>
-      <tr><td>前年同期間</td><td class="n">{{ ui.total(d.last_year) }}</td><td class="n">{% if d.last_year.days_with_value %}{{ ui.delta(d.all_mtd.value, d.last_year.value) }}{% else %}<span class="muted">前年データなし</span>{% endif %}</td></tr>
-      {% if d.all_target %}<tr><td>月間目標</td><td class="n">{{ d.all_target|fmt }}</td><td class="n">達成率 {{ '%.1f'|format((d.all_mtd.value or 0) / d.all_target * 100) }}%</td></tr>{% endif %}
-    </table>
-    <p class="small muted">全院合計は、定義が統一された「売上（手数料抜き）」だけを合算しています。院ごとの売上定義（CPC受託込み等）は院別の画面で確認できます。</p>
-  </div>
   <div class="card">
     <h2>確認が必要なもの</h2>
     {% if d.issue_counts %}<ul class="small">{% for k, n in d.issue_counts.items() %}<li><a href="/issues?kind={{ k }}">{{ KIND.get(k, k) }}</a>：{{ n }}件</li>{% endfor %}</ul>

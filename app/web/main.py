@@ -189,6 +189,7 @@ def fact_text(f, unit="yen") -> str:
 
 
 templates.env.filters["fmt"] = fmt
+templates.env.filters["man"] = lambda v: "—" if v is None else (f"{v / 100000000:,.2f}億" if abs(v) >= 100000000 else f"{v / 10000:,.0f}万")
 templates.env.globals["fact_text"] = fact_text
 templates.env.globals["compare"] = Q.compare
 templates.env.globals["DIM_COLS"] = DIM_COLS

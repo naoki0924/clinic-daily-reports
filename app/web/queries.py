@@ -67,11 +67,21 @@ def dashboard(s, codes: list[str], today: date) -> dict:
     pm_e = min(ag.month_range(pm_y, pm_m)[1], pm_s + (y - ms))
     pm = ag.total(s, codes, "sales_net", pm_s, pm_e, today=today)
     grid_days = [y - timedelta(days=i) for i in range(13, -1, -1)]
-    issue_counts = dict(s.execute(select(Issue.kind, func.count()).where(Issue.status == "open", Issue.clinic_code.in_(codes))
+    issue_counts = dict(s.execute(select(Issue.kind, func.count()).where(Issue.status == "open", Issue.clinic_code.in_(codes),
+                                                                     Issue.severity != "info")
                                   .group_by(Issue.kind)).all())
     note = s.scalar(select(AnalysisNote).where(AnalysisNote.scope == "daily").order_by(AnalysisNote.period.desc()))
     last_run = s.scalar(select(JobRun).where(JobRun.kind.in_(("daily", "manual"))).order_by(JobRun.queued_at.desc()))
-    return dict(day=y, cards=cards, all_mtd=all_mtd, last_year=ly, prev_month=pm, prev_month_range=(pm_s, pm_e),
+    from .. import menu as M
+    share = M.market_share(s, codes, ms, y)
+    trend_start = y - timedelta(days=29)
+    tf = facts_for(s, codes, trend_start, y, ["sales_net"])
+    trend = []
+    for i in range(30):
+        dd = trend_start + timedelta(days=i)
+        vals = [f.value for (c, d_, _), f in tf.items() if d_ == dd and f.value is not None and f.status != "review"]
+        trend.append({"d": dd.strftime("%m/%d"), "v": sum(vals) if vals else None})
+    return dict(share=share, trend=trend, day=y, cards=cards, all_mtd=all_mtd, last_year=ly, prev_month=pm, prev_month_range=(pm_s, pm_e),
                 prev_month_cov=ag.coverage(s, codes, pm_s, pm_e),
                 all_target=ag.target_value(s, "ALL", y.year, y.month, "sales_net"), grid_days=grid_days, grid=st,
                 issue_counts=issue_counts, note=note, last_run=last_run, month_start=ms)

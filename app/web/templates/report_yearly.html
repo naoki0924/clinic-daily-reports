@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% import "_m.html" as ui with context %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>{% endblock %}
+
 {% block content %}
 {% set md = metrics[metric] %}
 <h1>年次レポート <span class="muted small">{{ y }}年・{{ md.name }}</span></h1>
@@ -27,7 +27,7 @@
 </tr>{% endfor %}</table>
 <p class="small muted">暫＝未提出・要確認・暫定値を含む月。</p></div>
 <script>
-const pal=['#2457c5','#1f8a4c','#b26a00','#7a5af8'];let i=0;
+const pal=window.PAL;let i=0;
 new Chart(document.getElementById('ch'),{type:'bar',data:{labels:{{ chart.labels|tojson }},datasets:Object.entries({{ chart.series|tojson }}).map(([k,v])=>({label:k,data:v,backgroundColor:pal[i++%4]}))},options:{responsive:true,scales:{x:{stacked:true},y:{stacked:true}}}});
 </script>
 {% endblock %}

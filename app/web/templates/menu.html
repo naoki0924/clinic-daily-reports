@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% import "_m.html" as ui with context %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% block head %}
 <style>.bar{height:8px;background:#e8edf7;border-radius:4px;overflow:hidden;min-width:80px}.bar>i{display:block;height:100%;background:var(--accent)}
-.spark{display:flex;align-items:flex-end;gap:2px;height:26px}.spark>i{display:block;width:7px;background:#9db4e8;border-radius:1px}.spark>i.cur{background:var(--accent)}</style>{% endblock %}
+.spark{display:flex;align-items:flex-end;gap:2px;height:26px}.spark>i{display:block;width:7px;background:#93cfb3;border-radius:1px}.spark>i.cur{background:var(--accent)}</style>{% endblock %}
 {% block content %}
 {% set cname = (clinics|selectattr('code','equalto',clinic)|first).name if clinic else '' %}
 <h1>メニュー分析 <span class="muted small">{{ cname }}・{{ label }}</span></h1>
@@ -54,7 +54,7 @@
 {% for a in vc %}<tr><td>{{ a.market }}</td><td>{{ a.cust }}</td><td>{{ a.category }}</td><td class="n">{{ a.visits|fmt('count') }}</td><td class="n">{{ a.contracts|fmt('count') }}</td><td class="n">{{ '%.0f'|format(a.rate * 100) ~ '%' if a.rate is not none else '算出不可' }}</td></tr>{% endfor %}</table></div>{% endif %}
 
 {% if trend %}<script>
-const pal=['#2457c5','#1f8a4c','#b26a00','#7a5af8','#c0392b','#0e7490','#a16207','#be185d','#475569','#15803d'];
+const pal=window.PAL;
 const months={{ months|tojson }};
 const series={{ trend|map(attribute='name')|list|tojson }}, mk={{ trend|map(attribute='market')|list|tojson }};
 const data={{ trend|map(attribute='monthly')|list|tojson }};

@@ -89,7 +89,8 @@ def test_bio_old_format_is_read():
     m = {(o.metric, o.dims.get("market", ""), o.dims.get("category", "") + o.dims.get("method", "")): o.num for o in r.observations}
     assert m[("sales_incl_cpc", "", "")].value == 1210000
     assert m[("receipt", "", "")].value == 10000
-    assert m[("ar_new", "", "")].value == 1200000          # 冒頭の売掛（〈一般〉の売掛は決済方法として別に読む）
+    assert m[("ar_incl_cpc", "", "")].value == 1200000    # 冒頭の売掛はCPC受託を含むので照合しない別指標
+    assert m[("ar_new", "", "")].state == "absent"        # 照合対象の売掛は本文から読まない（Excelの値を使う）
     assert m[("payment", "一般", "売掛")].value == 1200000
     assert m[("payment", "一般", "現金")].value == 4000 and m[("payment", "インバウンド", "クレジット")].value == 6000
     assert m[("cpc_amount", "", "NK")].value == 1000000 and m[("cpc_count", "", "NK")].value == 5

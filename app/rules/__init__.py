@@ -20,6 +20,8 @@ METRICS: list[dict] = [
          cross_clinic_sum=False, description="BiO STYLE CLINIC本文の『●売上』。グループ内CPC受託を含むため全院合計に使わない。"),
     dict(code="sales_actual", name="実売（手数料差引・グループ内CPC除く）", unit="yen", fee_basis="excl", internal_tx="excl",
          cross_clinic_sum=False, description="BiO STYLE CLINIC本文の『●実売』。"),
+    dict(code="ar_incl_cpc", name="売掛（CPC受託含む）", unit="yen", cross_clinic_sum=False,
+         description="BiO旧書式（〜2025/10）本文冒頭の『売掛』。CPC受託の請求分を含み、Excelの売掛（CPC受託を含まない）とは定義が違うため照合しない。"),
     dict(code="market_sales_net", name="売上（手数料抜き）国内／インバウンド別", unit="yen", fee_basis="excl", internal_tx="incl",
          cross_clinic_sum=True,
          description="各院Excelの国内・インバウンド等の合計列（手数料抜き）。数式上、区分の合計＝売上（手数料抜き）。"),
@@ -138,7 +140,8 @@ BODY_RULES: dict[str, dict] = {
             {"subsection": "^$", "re": r"^売上\s*(?:\(CPC受託\+手数料込\))?\s*" + _V + r"\s*円",
              "out": [{"metric": "sales_incl_cpc", "group": "v"}]},
             {"subsection": "^$", "re": r"^入金\s*" + _V + r"\s*円", "out": [{"metric": "receipt", "group": "v"}]},
-            {"subsection": "^$", "re": r"^売掛\s*" + _V + r"\s*円", "out": [{"metric": "ar_new", "group": "v"}]},
+            # 旧書式の冒頭「売掛」はCPC受託の請求分を含む（実データ：本文−Excel売掛＝CPC受託額）ため別指標
+            {"subsection": "^$", "re": r"^売掛\s*" + _V + r"\s*円", "out": [{"metric": "ar_incl_cpc", "group": "v"}]},
             {"subsection": "CPC受託", "re": r"^(?P<label>[^〈<\s(].*?)\s*¥\s*(?P<v>[\d,]*)\s*/\s*(?P<c>\d*)\s*件",
              "out": [{"metric": "cpc_amount", "group": "v", "dims_group": {"category": "label"}},
                      {"metric": "cpc_count", "group": "c", "dims_group": {"category": "label"}}]},

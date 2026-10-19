@@ -52,6 +52,15 @@ def seed() -> None:
                 if not exists:
                     s.add(ParseRule(clinic_code=code, kind=kind, version=1, rule=copy.deepcopy(src[code]),
                                     active=True, note="初版（2026-10-19 実データで確認）"))
+        # コード側の読み取りルールが更新されていれば新しい版として登録する。
+        # 管理画面で変更されたルール（created_by が system 以外）は上書きしない。
+        for code in BODY_RULES:
+            for kind, src in (("body", BODY_RULES), ("excel", EXCEL_RULES)):
+                cur = s.scalar(select(ParseRule).where(ParseRule.clinic_code == code, ParseRule.kind == kind,
+                                                       ParseRule.active.is_(True)).order_by(ParseRule.version.desc()))
+                if cur is not None and cur.created_by == "system" and cur.rule != src[code]:
+                    s.flush()
+                    save_rule(s, code, kind, copy.deepcopy(src[code]), "system", "コードのルール更新（起動時に自動登録）")
         for key, value in DEFAULT_SETTINGS.items():
             if not s.get(Setting, key):
                 s.add(Setting(key=key, value=value))

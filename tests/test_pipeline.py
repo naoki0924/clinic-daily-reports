@@ -77,6 +77,27 @@ def test_body_prevention_dash_and_osaka_categories_and_bio():
     assert r.date is None
 
 
+def test_bio_old_format_is_read():
+    """2025/10以前のBiO旧書式（●なし、〈CPC受託〉〈AIMS〉〈ITEC〉が別見出し）。"""
+    from app.pipeline import classify
+    text = ("売上 (CPC受託+手数料込)1,210,000円\n手数料 0円\n売上（手数料差引）1,210,000円\n入金 10,000円\n売掛 1,200,000円\n\n"
+            "〈CPC受託〉（NK￥/件 MSC￥/件）\nNK ￥1,000,000/5件\nMSC￥200,000/1件\n繊維芽￥/件\n\n"
+            "〈一般〉\nクレジット円\n現金 4,000円\n売掛 1,200,000円\n\n〈ITEC〉\n現金　 円\n\n"
+            "〈インバウンド〉\nクレジット 6,000円\nWe chat pay円\n\n【概要】3名\n＜一般＞\n（TEL)1件（）\n")
+    assert classify(text, BODY_RULES["bio"])[0] == "daily"
+    r = parse_body(text, BODY_RULES["bio"])
+    m = {(o.metric, o.dims.get("market", ""), o.dims.get("category", "") + o.dims.get("method", "")): o.num for o in r.observations}
+    assert m[("sales_incl_cpc", "", "")].value == 1210000
+    assert m[("receipt", "", "")].value == 10000
+    assert m[("ar_new", "", "")].value == 1200000          # 冒頭の売掛（〈一般〉の売掛は決済方法として別に読む）
+    assert m[("payment", "一般", "売掛")].value == 1200000
+    assert m[("payment", "一般", "現金")].value == 4000 and m[("payment", "インバウンド", "クレジット")].value == 6000
+    assert m[("cpc_amount", "", "NK")].value == 1000000 and m[("cpc_count", "", "NK")].value == 5
+    assert not any(o.metric == "cpc_amount" and "CPC" in o.dims.get("category", "") for o in r.observations)
+    assert m[("sales_actual", "", "")].state == "absent"   # 旧書式に「実売」はない（0とはみなさない）
+    assert classify("売上 5,000円\n入金 5,000円\n", BODY_RULES["bio"])[0] == "non_report"
+
+
 # ---- Excel ----------------------------------------------------------------
 
 def test_excel_layout_found_by_labels_with_location():

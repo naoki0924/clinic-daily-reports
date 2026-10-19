@@ -123,7 +123,8 @@ BODY_RULES: dict[str, dict] = {
         ],
     },
     "bio": {
-        "classify": {"must": ["●売上"], "monthly": ["月次集計", "月度"]},
+        # 2025/10以前は「●」のない旧書式（1行目「売上○円」、〈一般〉〈インバウンド〉等の小見出し）（実データで確認）
+        "classify": {"must": ["●売上", "〈一般〉", "〈インバウンド〉"], "monthly": ["月次集計", "月度"]},
         # 本文の「●入金」＝各区分の決済方法別の合計（売掛を除く）
         "consistency": {"receipt_components": ["payment"], "exclude_methods": ["売掛", "デポジット"]},
         "date": {"patterns": [r"(?P<y>\d{4})\s*年\s*(?P<m>\d{1,2})\s*月\s*(?P<d>\d{1,2})\s*日",
@@ -133,15 +134,20 @@ BODY_RULES: dict[str, dict] = {
             {"re": r"^●実売\s*" + _V + r"\s*(?:\((?P<note>.*)\)?)?", "out": [{"metric": "sales_actual", "group": "v"}], "expected": True},
             {"re": r"^●売掛\s*" + _V, "out": [{"metric": "ar_new", "group": "v"}], "expected": True},
             {"re": r"^●入金\s*" + _V, "out": [{"metric": "receipt", "group": "v"}], "expected": True},
-            {"subsection": "グループ内CPC受託", "re": r"^(?P<label>.+?)\s*¥\s*(?P<v>[\d,]*)\s*/\s*(?P<c>\d*)\s*件",
+            # 旧書式（〜2025/10）：小見出しより前の「売上」「売上(CPC受託+手数料込)」「入金」「売掛」
+            {"subsection": "^$", "re": r"^売上\s*(?:\(CPC受託\+手数料込\))?\s*" + _V + r"\s*円",
+             "out": [{"metric": "sales_incl_cpc", "group": "v"}]},
+            {"subsection": "^$", "re": r"^入金\s*" + _V + r"\s*円", "out": [{"metric": "receipt", "group": "v"}]},
+            {"subsection": "^$", "re": r"^売掛\s*" + _V + r"\s*円", "out": [{"metric": "ar_new", "group": "v"}]},
+            {"subsection": "CPC受託", "re": r"^(?P<label>[^〈<\s(].*?)\s*¥\s*(?P<v>[\d,]*)\s*/\s*(?P<c>\d*)\s*件",
              "out": [{"metric": "cpc_amount", "group": "v", "dims_group": {"category": "label"}},
                      {"metric": "cpc_count", "group": "c", "dims_group": {"category": "label"}}]},
-            {"subsection": "^(一般|AIMS/ITEC|BTS|再生美容|インバウンド)$",
+            {"subsection": "^(一般|AIMS/ITEC|AIMS|ITEC|BTS|再生美容|インバウンド)$",
              "re": r"^(?P<label>クレジット|現金|振込|売掛|ポイント|銀聯|We\s*chat\s*pay|Ari\s*pay|Ali\s*pay|デポジット)\s*(?P<v>[\d,]*|-)\s*円",
              "out": [{"metric": "payment", "group": "v", "dims_group": {"method": "label"}, "dims_subsection": "market",
                       "method_alias": True}]},
             {"re": r"^【概要】\s*(?P<v>\d+|-)\s*件", "out": [{"metric": "treatment_count", "group": "v"}]},
-            {"subsection": "^(一般|AIMS|インバウンド|BTS|再生美容)$",
+            {"subsection": "^(一般|AIMS|ITEC|インバウンド|BTS|再生美容)$",
              "re": r"^\((?P<label>TEL|メール|来院|LINE/国際部|LINE)\)\s*(?P<v>\d*)\s*件",
              "out": [{"metric": "inquiries", "group": "v", "dims_group": {"channel": "label"}, "dims_subsection": "market"}]},
         ],

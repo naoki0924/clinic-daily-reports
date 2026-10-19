@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>実行 #{{ run.id }} <span class="badge b-{{ 'confirmed' if run.status=='success' else 'review' if run.status in ('partial','queued','running') else 'error' }}">{{ run.status }}</span></h1>
+<div class="card small">種類：{{ run.kind }}　受付：{{ run.queued_at|jst }}　開始：{{ run.started_at|jst }}　終了：{{ run.finished_at|jst }}　依頼者：{{ run.requested_by }}
+{% if run.status in ('queued','running') %}<p><a href="/ops/run/{{ run.id }}">更新</a></p>{% endif %}</div>
+<div class="card scroll"><h2>手順</h2><table class="small"><tr><th>手順</th><th>院</th><th>結果</th><th>詳細</th><th>時刻</th></tr>
+{% for st in steps %}<tr><td>{{ st.step }}</td><td>{{ st.clinic_code }}</td><td><span class="badge b-{{ 'confirmed' if st.status=='success' else 'review' if st.status=='partial' else 'error' }}">{{ st.status }}</span></td><td><pre>{{ st.detail|tojson_ja }}</pre></td><td>{{ st.finished_at|jst }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>概要</h2><pre>{{ run.summary|tojson_ja }}</pre>{% if run.error %}<h3>エラー</h3><pre>{{ run.error }}</pre>{% endif %}</div>
+{% endblock %}

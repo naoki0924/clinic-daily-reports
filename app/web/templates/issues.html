@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>確認キュー</h1>
+<form class="filters">
+<label>状態<select name="status">{% for k, v in [('open','未対応'),('resolved','対応済'),('ignored','対象外'),('','すべて')] %}<option value="{{ k }}" {% if k==status %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+<label>種類<select name="kind"><option value="">すべて</option>{% for k, v in KIND.items() %}<option value="{{ k }}" {% if k==kind %}selected{% endif %}>{{ v }}{% if counts.get(k) %}（{{ counts[k] }}）{% endif %}</option>{% endfor %}</select></label>
+<label>クリニック<select name="clinic"><option value="">すべて</option>{% for c in clinics %}<option value="{{ c.code }}" {% if c.code==clinic %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label><button>表示</button></form>
+<div class="card scroll"><table class="small"><tr><th>対象日</th><th>院</th><th>種類</th><th>重要度</th><th>内容</th><th>状態</th><th>最終検出</th></tr>
+{% for i in rows %}<tr><td>{{ i.target_date or '—' }}</td><td>{{ i.clinic_code }}</td><td>{{ KIND.get(i.kind, i.kind) }}</td><td><span class="badge b-{{ i.severity }}">{{ {'error':'エラー','warn':'要確認','info':'情報'}[i.severity] }}</span></td>
+<td><a href="/issues/{{ i.id }}">{{ i.title }}</a></td><td>{{ {'open':'未対応','resolved':'対応済','ignored':'対象外'}[i.status] }}</td><td>{{ i.last_seen|jst }}</td></tr>
+{% else %}<tr><td colspan="7" class="muted">該当なし</td></tr>{% endfor %}</table></div>
+{% endblock %}

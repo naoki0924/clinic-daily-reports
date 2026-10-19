@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>手動補正</h1>
+<div class="card" style="max-width:640px">
+<form method="post" action="/adjust"><input type="hidden" name="csrf" value="{{ csrf }}">
+<p><label>クリニック<br><select name="clinic">{% for c in clinics %}<option value="{{ c.code }}" {% if c.code==clinic %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label></p>
+<p><label>対象日<br><input type="date" name="day" value="{{ day }}" required></label></p>
+<p><label>指標<br><select name="metric">{% for k, v in metrics.items() %}<option value="{{ k }}" {% if k==metric %}selected{% endif %}>{{ v.name }}</option>{% endfor %}</select></label></p>
+{% for c, label in [('market','国内/インバウンド'),('cust','顧客区分'),('category','カテゴリ'),('channel','経路'),('method','決済方法')] %}
+<p><label>{{ label }}（区分なしは空欄）<br><input name="{{ c }}" value="{{ dims.get(c, '') }}"></label></p>{% endfor %}
+<p><label>値（空欄にすると「値なし」）<br><input name="value" inputmode="decimal"></label>
+<select name="state"><option value="blank">値なし：空欄</option><option value="dash">値なし：「-」</option><option value="absent">値なし：未記載</option></select></p>
+<p><label>理由（必須・履歴に残ります）<br><input name="reason" required style="width:100%"></label></p>
+<button>補正を保存</button>
+</form>
+<p class="small muted">補正は元の観測値を変更せず、採用値だけを置き換えます。日次・月次・年次の集計に反映され、変更履歴に残ります。</p>
+</div>
+{% endblock %}

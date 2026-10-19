@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% import "_m.html" as ui with context %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>{% endblock %}
+{% block content %}
+<h1>{{ clinic.name }} <span class="muted small">{{ y }}年{{ m }}月</span></h1>
+<form class="filters"><label>月<input type="month" name="month" value="{{ '%04d-%02d'|format(y, m) }}"></label><button>表示</button>
+  <a href="/reports/monthly?month={{ '%04d-%02d'|format(y, m) }}&clinic={{ clinic.code }}">月次レポート</a></form>
+
+<div class="grid">
+  <div class="card"><h2>月合計（院の報告値）</h2>
+    <table class="small">{% for k in shown %}{% if k in totals %}<tr><td>{{ metrics[k].name }}</td><td class="n">{{ ui.total(totals[k], metrics[k].unit) }}</td></tr>{% endif %}{% endfor %}</table>
+    <p class="small muted">区分のない値の合計です。区分別（決済方法・カテゴリ等）は月次レポートで絞り込めます。</p>
+  </div>
+  <div class="card"><h2>率（分子・分母の合計から計算）</h2>
+    <table class="small">
+      <tr><td>平均単価（売上（手数料抜き）÷来院者合計）</td><td class="n">{% if rates.unit_price.value is not none %}{{ rates.unit_price.value|fmt }}円{% else %}算出不可{% endif %}</td></tr>
+      <tr><td class="muted" colspan="2">対象 {{ rates.unit_price.days }}日（両方の値がある日のみ）</td></tr>
+      <tr><td>新規契約率（院報告の契約数÷新規来院数）</td><td class="n">{% if rates.new_contract.value is not none %}{{ '%.1f'|format(rates.new_contract.value*100) }}%{% else %}算出不可{% endif %}</td></tr>
+      <tr><td class="muted" colspan="2">※契約は新規以外を含む可能性があるため「成約率」とは呼びません。対象 {{ rates.new_contract.days }}日</td></tr>
+    </table>
+  </div>
+  {% if cats %}<div class="card"><h2>カテゴリ別売上の構成</h2>
+    {% set tot = cats.values()|sum %}<table class="small">{% for k, v in cats.items() %}<tr><td>{{ k }}</td><td class="n">{{ v|fmt }}</td><td class="n">{{ '%.1f'|format(v / tot * 100 if tot else 0) }}%</td></tr>{% endfor %}</table></div>{% endif %}
+</div>
+
+<div class="card"><canvas id="ch" height="90"></canvas></div>
+
+<div class="card scroll">
+<table class="small">
+<tr><th>日付</th><th>状態</th>{% for k in shown %}<th class="n">{{ metrics[k].name }}</th>{% endfor %}<th>元投稿</th></tr>
+{% for day in days %}{% set sts = st.get((clinic.code, day)) %}
+<tr class="{% if sts and sts.status=='closed' %}cell-closed{% elif sts and sts.status in ('missing','failed') %}cell-missing{% endif %}">
+  <td>{{ day.strftime('%m/%d') }}（{{ day|wd }}）</td><td>{{ ui.status(sts) }}</td>
+  {% for k in shown %}{{ ui.fcell(facts.get((day, k)), clinic.code, day, k, metrics[k].unit) }}{% endfor %}
+  <td>{% if day in reports %}{% set r, p = reports[day] %}<a href="{{ p.url }}" target="_blank" rel="noopener">Talknote</a>{% endif %}</td>
+</tr>{% endfor %}
+</table>
+<p class="small muted">「—」は値なし（未提出・未記載・休診）です。0として扱いません。<sup>要</sup>＝要確認、<sup>暫</sup>＝暫定。数値をクリックすると抽出根拠を表示します。</p>
+</div>
+<script>
+new Chart(document.getElementById('ch'),{type:'bar',data:{labels:{{ chart.labels|tojson }},datasets:[
+ {label:'売上（手数料抜き）',data:{{ chart.sales|tojson }},backgroundColor:'#2457c5'},
+ {label:'入金',data:{{ chart.receipt|tojson }},backgroundColor:'#9db4e8'}]},options:{responsive:true,scales:{y:{beginAtZero:true}}}});
+</script>
+{% endblock %}

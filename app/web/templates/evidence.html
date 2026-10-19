@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>抽出根拠 <span class="muted small">{{ clinic }}／{{ d }}／{{ metrics[metric].name }}{% for k, v in dims.items() %}／{{ v }}{% endfor %}</span></h1>
+<div class="card">
+  <h2>採用値</h2>
+  {% set f = ev.fact %}
+  {% if f %}<p class="big">{{ fact_text(f, metrics[metric].unit) }} <span class="badge b-{{ f.status }}">{{ FACT_STATUS[f.status] }}</span></p>
+  <p class="small">{{ f.note }}（採用：{{ f.adopted_by }}）</p>{% else %}<p class="muted">採用値はありません（未提出・未記載など）</p>{% endif %}
+</div>
+<div class="card scroll"><h2>出典ごとの値（観測値）</h2>
+<table class="small"><tr><th>出典</th><th class="n">値</th><th>状態</th><th>原表記</th><th>位置</th><th>注意</th><th>元投稿</th>{% if user.role=='admin' %}<th>採用</th>{% endif %}</tr>
+{% for o in ev.obs %}{% set p = ev.posts.get(o.post_id) %}
+<tr><td>{{ {'body':'本文','excel':'添付Excel','excel_later':'後日のExcel（参考）','manual':'手動'}[o.source_kind] }}{% if not o.definition_confirmed %} <span class="badge b-provisional">定義未確認</span>{% endif %}</td>
+<td class="n">{{ o.value|fmt(metrics[metric].unit) }}</td><td>{{ STATE_LABEL.get(o.state, o.state) }}</td><td>{{ o.raw }}</td><td>{{ o.location }}</td><td style="color:var(--warn)">{{ o.suspicious }}</td>
+<td>{% if p %}<a href="{{ p.url }}" target="_blank" rel="noopener">Talknote</a> <span class="muted">{{ p.posted_at|dt }}</span>{% endif %}</td>
+{% if user.role=='admin' %}<td>{% if o.source_kind in ('body','excel') and o.state in ('value','zero') %}<form method="post" action="/adopt" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="obs_id" value="{{ o.id }}"><input name="reason" placeholder="理由" required style="width:120px"><button class="sec">この値を採用</button></form>{% endif %}</td>{% endif %}</tr>
+{% else %}<tr><td colspan="8" class="muted">観測値がありません</td></tr>{% endfor %}</table>
+<p class="small muted">本文の位置は「何行目」と一致した集計行のみ表示します（患者名などの明細は表示しません）。Excelは「ファイル名 / シート!セル」です。</p></div>
+{% if user.role=='admin' %}<div class="card"><h2>手動補正</h2>
+<a href="/adjust?clinic={{ clinic }}&day={{ d }}&metric={{ metric }}{% for k, v in dims.items() %}&{{ k }}={{ v|urlencode }}{% endfor %}">値を手動で補正する</a>
+{% if adj %}<table class="small" style="margin-top:8px"><tr><th>日時</th><th>担当</th><th class="n">変更前</th><th class="n">変更後</th><th>理由</th><th>状態</th><th></th></tr>
+{% for a in adj %}<tr><td>{{ a.created_at|jst }}</td><td>{{ a.user }}</td><td class="n">{{ a.before_value|fmt }}</td><td class="n">{{ a.after_value|fmt }}</td><td>{{ a.reason }}</td><td>{{ '有効' if a.active else '取消/置換' }}</td>
+<td>{% if a.active %}<form method="post" action="/adjust/{{ a.id }}/revoke" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sec">取り消す</button></form>{% endif %}</td></tr>{% endfor %}</table>{% endif %}
+</div>{% endif %}
+{% endblock %}

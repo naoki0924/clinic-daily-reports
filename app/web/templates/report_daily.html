@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% import "_m.html" as ui with context %}
+{% block content %}
+<h1>日次レポート <span class="muted small">{{ d }}（{{ d|wd }}）</span></h1>
+<form class="filters"><label>対象日<input type="date" name="day" value="{{ d }}"></label><button>表示</button>
+  <a href="/export?kind=daily&start={{ d }}&end={{ d }}">CSV</a> <a href="/export?kind=daily&start={{ d }}&end={{ d }}&fmt_=xlsx">Excel</a></form>
+<div class="card scroll">
+<table>
+<tr><th>指標</th>{% for c in clinics %}<th class="n">{{ c.name }}<br>{{ ui.status(st.get((c.code, d))) }}</th>{% endfor %}<th class="n">全院合計</th><th class="n">前日比</th><th class="n">前週同曜日比</th></tr>
+{% for k in metric_list %}
+<tr><td>{{ metrics[k].name }}</td>
+  {% for c in clinics %}{{ ui.fcell(f.get((c.code, d, k)), c.code, d, k, metrics[k].unit) }}{% endfor %}
+  {% if k in all_rows %}{% set a = all_rows[k] %}<td class="n">{{ ui.total(a.cur, metrics[k].unit) }}</td><td class="n">{{ ui.delta(a.cur.value, a.prev.value) }}</td><td class="n">{{ ui.delta(a.cur.value, a.wk.value) }}</td>
+  {% else %}<td class="n muted" title="定義が院ごとに異なるため合算しません">合算しない</td><td></td><td></td>{% endif %}
+</tr>{% endfor %}
+</table>
+<p class="small muted">全院合計は定義が統一された指標のみ。前日比・前週同曜日比は全院合計の比較です。</p>
+</div>
+<div class="card"><h2>この日の要確認・未提出</h2>
+{% if issues %}<table class="small"><tr><th>院</th><th>種類</th><th>内容</th></tr>{% for i in issues %}<tr><td>{{ i.clinic_code }}</td><td><span class="badge b-{{ i.severity }}">{{ KIND.get(i.kind, i.kind) }}</span></td><td><a href="/issues/{{ i.id }}">{{ i.title }}</a></td></tr>{% endfor %}</table>
+{% else %}<p class="muted">ありません</p>{% endif %}
+<p class="small">{% for c in clinics %}{% set s1 = st.get((c.code, d)) %}{% if s1 and s1.status in ('missing','failed','closed') %}{{ c.name }}：{{ STATUS_LABEL[s1.status] }}（{{ s1.note }}）　{% endif %}{% endfor %}</p>
+</div>
+{% endblock %}

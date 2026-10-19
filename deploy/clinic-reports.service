@@ -1,0 +1,14 @@
+[Unit]
+Description=Clinic daily report collector (web + scheduler)
+After=network-online.target
+
+[Service]
+User=clinic
+WorkingDirectory=/opt/clinic-reports
+EnvironmentFile=/opt/clinic-reports/.env
+ExecStart=/opt/clinic-reports/.venv/bin/python -m app.cli serve --host 127.0.0.1 --port 8100
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

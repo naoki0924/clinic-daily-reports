@@ -1,0 +1,12 @@
+# 秘密情報・データ（公開しない）
+.env
+var/
+*.key
+# 実データの数値を含む資料（公開しない）
+docs/private/
+# ローカル環境
+.claude/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/

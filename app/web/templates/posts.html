@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% import "_m.html" as ui with context %}
+{% block content %}
+<h1>日報一覧 <span class="muted small">{{ y }}年{{ m }}月（対象日）</span></h1>
+<form class="filters"><label>月<input type="month" name="month" value="{{ '%04d-%02d'|format(y, m) }}"></label>
+<label>クリニック<select name="clinic"><option value="">すべて</option>{% for c in clinics %}<option value="{{ c.code }}" {% if c.code==clinic %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label><button>表示</button></form>
+<div class="card scroll"><table class="small">
+<tr><th>対象日</th><th>院</th><th>投稿日時</th><th>更新日時</th><th>取得日時</th><th>対象日の判定</th><th>関係</th><th>添付Excel（採用版）</th><th>元投稿</th>{% if user.role=='admin' %}<th>原文</th>{% endif %}</tr>
+{% for r, p in rows %}{% set f = files.get(r.primary_file_id) %}
+<tr><td>{{ r.target_date }}（{{ r.target_date|wd }}）</td><td>{{ r.clinic_code }}</td><td>{{ p.posted_at|dt }}</td><td>{{ p.updated_at|dt }}{% if p.edited %} <span class="badge b-info">編集済 v{{ p.version }}</span>{% endif %}</td><td>{{ p.fetched_at|jst }}</td>
+<td>{% if r.date_status=='review' %}<span class="badge b-review">要確認</span> {{ r.date_evidence.problems|join('／') }}{% else %}<span class="badge b-confirmed">確定</span>{% endif %}
+  <div class="muted">{% for v in r.date_evidence.get('votes', []) %}{{ v.source }}={{ v.date }}　{% endfor %}</div></td>
+<td>{{ {'original':'原本','correction':'訂正版','repost':'再投稿（計上しない）','review':'判定不能','additional':'追加'}[r.relation] }}</td>
+<td>{% if f %}{{ f.file_name }}<div class="muted">ID {{ f.file_id }}／{{ (f.size/1024)|round|int }}KB／SHA256 {{ f.sha256[:12] }}…／{{ f.status }}{% if f.comment_id %}／コメント添付{% endif %}</div>{% if f.error %}<div style="color:var(--err)">{{ f.error }}</div>{% endif %}{% else %}<span class="muted">なし</span>{% endif %}</td>
+<td><a href="{{ p.url }}" target="_blank" rel="noopener">Talknote</a></td>{% if user.role=='admin' %}<td><a href="/raw/{{ p.post_id }}">表示</a></td>{% endif %}</tr>
+{% else %}<tr><td colspan="10" class="muted">この月の日報はまだありません</td></tr>{% endfor %}
+</table></div>
+<div class="card scroll"><h2>日報として計上していない投稿</h2>
+<table class="small"><tr><th>投稿日時</th><th>院</th><th>分類</th><th>理由</th><th>元投稿</th></tr>
+{% for p in others %}<tr><td>{{ p.posted_at|dt }}</td><td>{{ p.clinic_code }}</td><td>{{ {'monthly':'月次集計','other_clinic':'他院の日報','non_report':'日報以外','unclassified':'未分類'}.get(p.category, p.category) }}{% if p.deleted %} <span class="badge b-info">削除</span>{% endif %}</td><td>{{ p.category_reason }}</td><td><a href="{{ p.url }}" target="_blank" rel="noopener">Talknote</a></td></tr>
+{% else %}<tr><td colspan="5" class="muted">ありません</td></tr>{% endfor %}</table></div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>原文（保護データ） <span class="muted small">投稿 {{ p.post_id }}</span></h1>
+<div class="banner warn">患者名・健康情報を含む可能性があります。閲覧は操作履歴に記録されます。分析データ・AI要約には使われません。</div>
+<div class="card"><p class="small">院：{{ p.clinic_code }}　投稿：{{ p.posted_at|dt }}　更新：{{ p.updated_at|dt }}　版：v{{ p.version }}　分類：{{ p.category }}（{{ p.category_reason }}）　保持期限：{{ p.purge_after }}　<a href="{{ p.url }}" target="_blank" rel="noopener">Talknote</a></p>
+<pre>{% for line in text.splitlines() %}{{ '%3d'|format(loop.index) }}| {{ line }}
+{% endfor %}</pre></div>
+{% if comments %}<div class="card"><h2>コメント</h2>{% for c, t in comments %}<p class="small">{{ c.posted_at|dt }} {% if c.is_correction_hint %}<span class="badge b-review">訂正の可能性</span>{% endif %}</p><pre>{{ t }}</pre>{% endfor %}</div>{% endif %}
+<div class="card"><h2>添付</h2><table class="small"><tr><th>ファイル名</th><th>ID</th><th>添付日時</th><th>サイズ</th><th>SHA256</th><th>状態</th><th>書式</th></tr>
+{% for f in files %}<tr><td>{{ f.file_name }}</td><td>{{ f.file_id }}</td><td>{{ f.attached_at|dt }}{% if f.comment_id %}（コメント）{% endif %}</td><td class="n">{{ f.size|fmt }}</td><td>{{ f.sha256[:16] }}</td><td>{{ f.status }} {{ f.error }}</td><td>{{ f.format_signature }} v{{ f.parsed_rule_version }}</td></tr>{% endfor %}</table></div>
+{% endblock %}

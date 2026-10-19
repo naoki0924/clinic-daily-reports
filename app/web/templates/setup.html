@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:440px;margin:60px auto">
+  <h1>初回セットアップ</h1>
+  <p class="small muted">管理者がまだいません。サーバーの起動ログに表示された「初回セットアップ用トークン」を入力し、管理者を作成してください。作成後はこの画面は使えなくなります。</p>
+  {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+  <form method="post" action="/setup">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p><label>セットアップ用トークン<br><input name="token" required autocomplete="off" style="width:100%"></label></p>
+    <p><label>管理者のユーザー名<br><input name="username" required autocomplete="username" style="width:100%"></label></p>
+    <p><label>パスワード（10文字以上）<br><input name="password" type="password" required autocomplete="new-password" style="width:100%"></label></p>
+    <button style="width:100%">管理者を作成</button>
+  </form>
+</div>
+{% endblock %}

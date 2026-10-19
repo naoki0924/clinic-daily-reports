@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}4院 日報集計{% endblock %}</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2430;--muted:#667085;--line:#e3e6ea;--accent:#2457c5;--ok:#1f8a4c;--warn:#b26a00;--err:#c0392b;--info:#5b6b84;--prov:#7a5af8}
+*{box-sizing:border-box}body{margin:0;font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+header{background:#18233a;color:#fff;padding:0 16px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+header .brand{font-weight:700;padding:12px 0}header nav a{color:#cfd8ea;padding:12px 6px;display:inline-block}header nav a.on{color:#fff;border-bottom:2px solid #7aa2ff}
+header .right{margin-left:auto;display:flex;gap:10px;align-items:center;color:#cfd8ea}
+main{padding:16px;max-width:1400px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+h1{font-size:20px;margin:4px 0 12px}h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:12px 0 6px}
+table{border-collapse:collapse;width:100%;background:#fff}th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#f0f2f5;font-weight:600;white-space:nowrap}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.scroll{overflow-x:auto}.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:12px;border:1px solid transparent;white-space:nowrap}
+.b-submitted,.b-confirmed{background:#e7f5ec;color:var(--ok)}.b-review,.b-warn{background:#fff3e0;color:var(--warn)}
+.b-missing,.b-failed,.b-error{background:#fdecea;color:var(--err)}.b-closed,.b-future,.b-info,.b-preopen{background:#eef1f5;color:var(--info)}
+.b-provisional{background:#efebff;color:var(--prov)}.b-sample{background:#fff7cc;color:#7a5d00;border-color:#e6cf63}
+.muted{color:var(--muted)}.small{font-size:12px}.big{font-size:22px;font-weight:700}.up{color:var(--ok)}.down{color:var(--err)}
+form.inline{display:inline}input,select,textarea,button{font:inherit;padding:5px 8px;border:1px solid #c9ced6;border-radius:6px;background:#fff}
+button{background:var(--accent);color:#fff;border-color:var(--accent);cursor:pointer}button.sec{background:#fff;color:var(--accent)}
+button.danger{background:var(--err);border-color:var(--err)}textarea{width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px}.filters label{display:flex;flex-direction:column;font-size:12px;color:var(--muted)}
+.banner{padding:10px 14px;border-radius:8px;margin-bottom:12px}.banner.warn{background:#fff3e0;border:1px solid #f3c27a}.banner.err{background:#fdecea;border:1px solid #f1a9a0}
+.banner.sample{background:#fff7cc;border:1px solid #e6cf63}
+.cell-review{background:#fff8ec}.cell-missing{background:#fdf1ef}.cell-closed,.cell-preopen{background:#f2f4f7;color:var(--muted)}.cell-prov{background:#f6f3ff}
+pre{white-space:pre-wrap;background:#f7f8fa;border:1px solid var(--line);padding:10px;border-radius:6px;font-size:12px}
+@media (max-width:700px){main{padding:10px 16px}header nav a{padding:8px 4px}}
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+{% if user %}
+<header>
+  <div class="brand">4院 日報集計</div>
+  <nav>
+    <a href="/">ダッシュボード</a>
+    <a href="/reports/daily">日次</a>
+    <a href="/reports/monthly">月次</a>
+    <a href="/reports/yearly">年次</a>
+    <a href="/posts">日報一覧</a>
+    <a href="/days">提出状況</a>
+    <a href="/issues">確認キュー{% if open_issue_count %} <span class="badge b-review">{{ open_issue_count }}</span>{% endif %}</a>
+    <a href="/history">履歴</a>
+    {% if user.role == 'admin' %}<a href="/ops">稼働状況</a><a href="/settings">設定</a>{% endif %}
+  </nav>
+  <div class="right small">{{ user.username }}（{{ {'admin':'管理者','viewer_all':'全院閲覧','viewer_clinic':'院別閲覧'}[user.role] }}）
+    <form class="inline" method="post" action="/logout"><button class="sec">ログアウト</button></form></div>
+</header>
+{% endif %}
+<main>
+{% if is_sample %}<div class="banner sample"><b>サンプルデータで表示中</b>：この画面の数値は架空のサンプルです。実データの検証結果ではありません。</div>{% endif %}
+{% if user and auth_state and auth_state.reauth_required %}<div class="banner err"><b>Talknoteの再認証が必要です</b>：{{ auth_state.message }}
+  {% if user.role == 'admin' %}<a href="/ops#reauth">稼働状況で再認証する</a>{% endif %}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

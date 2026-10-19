@@ -1,0 +1,55 @@
+{% extends "base.html" %}{% import "_m.html" as ui with context %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>{% endblock %}
+{% block content %}
+{% set md = metrics[metric] %}
+<h1>月次レポート <span class="muted small">{{ y }}年{{ m }}月・{{ md.name }}</span></h1>
+<form class="filters">
+  <label>月<input type="month" name="month" value="{{ '%04d-%02d'|format(y, m) }}"></label>
+  <label>指標<select name="metric">{% for k, v in metrics.items() %}<option value="{{ k }}" {% if k==metric %}selected{% endif %}>{{ v.name }}</option>{% endfor %}</select></label>
+  <label>クリニック<select name="clinic"><option value="">すべて</option>{% for c in clinics %}<option value="{{ c.code }}" {% if c.code==clinic %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+  {% for dim, opts in dim_opts.items() %}<label>{{ {'market':'国内/インバウンド','cust':'顧客区分','category':'施術カテゴリ','channel':'問い合わせ経路','method':'決済方法'}[dim] }}
+    <select name="{{ dim }}"><option value="">区分なし（合計行）</option>{% for o in opts %}<option {% if dims.get(dim)==o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></label>{% endfor %}
+  <button>表示</button>
+  <a href="/export?kind=daily&start={{ tbl.start }}&end={{ tbl.end }}">CSV</a> <a href="/export?kind=daily&start={{ tbl.start }}&end={{ tbl.end }}&fmt_=xlsx">Excel</a>
+  <a href="/export?kind=monthly&fmt_=xlsx">月次・年次集計Excel</a>
+</form>
+<p class="small muted">定義：{{ md.description or md.name }}（手数料：{{ {'incl':'込み','excl':'抜き','na':'—'}[md.fee_basis] }}／内部取引：{{ {'incl':'含む','excl':'除く','na':'—'}[md.internal_tx] }}）
+{% if in_progress %}<br>進行中の月のため、比較は {{ tbl.start }}〜{{ cmp_end }} の同じ経過期間で行っています（前月 {{ p_range[0] }}〜{{ p_range[1] }}、前年 {{ ly_range[0] }}〜{{ ly_range[1] }}）。{% endif %}</p>
+
+<div class="card scroll">
+<table>
+<tr><th>クリニック</th><th class="n">{{ '月累計' if in_progress else '月合計' }}</th><th class="n">前月{{ '同期間' if in_progress else '' }}</th><th class="n">前月比</th><th class="n">前年同{{ '期間' if in_progress else '月' }}</th><th class="n">前年比</th><th class="n">目標</th><th class="n">達成率</th><th class="n">構成比</th><th>集計対象・欠損</th></tr>
+{% set grand = all_row.cur.value if all_row else None %}
+{% for r in rows %}
+<tr><td><a href="/clinic/{{ r.clinic.code }}?month={{ '%04d-%02d'|format(y, m) }}">{{ r.clinic.name }}</a>{% if r.clinic.open_from and r.clinic.open_from > tbl.start %} <span class="badge b-preopen">開院 {{ r.clinic.open_from.strftime('%m/%d') }}</span>{% endif %}</td>
+  <td class="n">{{ ui.total(r.cur, md.unit) }}</td><td class="n">{{ ui.total(r.prev, md.unit) }}</td><td class="n">{% if r.p_cov.insufficient %}<span class="muted" title="前月の比較期間のデータが不足（{{ r.p_cov.days_with_data }}/{{ r.p_cov.days }}日）">データ不足</span>{% else %}{{ ui.delta(r.cur.value, r.prev.value) }}{% endif %}</td>
+  <td class="n">{{ ui.total(r.ly, md.unit) }}</td><td class="n">{% if r.ly_cov.insufficient %}<span class="muted" title="前年の比較期間のデータが不足">データ不足</span>{% else %}{{ ui.delta(r.cur.value, r.ly.value) }}{% endif %}</td>
+  <td class="n">{{ r.target|fmt if r.target else '—' }}</td><td class="n">{% if r.target and r.full.value is not none %}{{ '%.1f'|format(r.full.value / r.target * 100) }}%{% else %}—{% endif %}</td>
+  <td class="n">{% if grand and r.cur.value is not none %}{{ '%.1f'|format(r.cur.value / grand * 100) }}%{% else %}—{% endif %}</td>
+  <td class="small">値あり {{ r.cur.days_with_value }}日{% if r.cur.coverage_note %}／{{ r.cur.coverage_note }}{% endif %}{% if r.cur.days_closed %}／休診 {{ r.cur.days_closed }}日{% endif %}</td></tr>
+{% endfor %}
+{% if all_row %}<tr style="font-weight:600"><td>全院合計</td><td class="n">{{ ui.total(all_row.cur, md.unit) }}</td><td class="n">{{ ui.total(all_row.prev, md.unit) }}</td><td class="n">{% if all_row.p_cov.insufficient %}<span class="muted">データ不足</span>{% else %}{{ ui.delta(all_row.cur.value, all_row.prev.value) }}{% endif %}</td>
+  <td class="n">{{ ui.total(all_row.ly, md.unit) }}</td><td class="n">{% if all_row.ly_cov.insufficient %}<span class="muted">データ不足</span>{% else %}{{ ui.delta(all_row.cur.value, all_row.ly.value) }}{% endif %}</td>
+  <td class="n">{{ all_row.target|fmt if all_row.target else '—' }}</td><td class="n">{% if all_row.target and all_row.full.value is not none %}{{ '%.1f'|format(all_row.full.value / all_row.target * 100) }}%{% else %}—{% endif %}</td><td class="n">100%</td>
+  <td class="small">{{ all_row.cur.coverage_note }}{% set lacking = [] %}{% for r in rows %}{% if r.cur.value is none and not (r.clinic.open_from and r.clinic.open_from > cmp_end) %}{% set _ = lacking.append(r.clinic.name) %}{% endif %}{% endfor %}{% if lacking %}<br><span style="color:var(--warn)">値のない院：{{ lacking|join('、') }}（合計に含まれていません）</span>{% endif %}</td></tr>
+{% elif not md.cross_clinic_sum %}<tr><td colspan="10" class="small muted">この指標は院ごとに定義が異なる（または未確定）ため、全院合計を出していません。</td></tr>{% endif %}
+</table></div>
+
+<div class="card"><canvas id="ch" height="80"></canvas></div>
+
+<div class="card scroll"><h2>日別推移</h2>
+<table class="small"><tr><th>日付</th>{% for c in clinics if not clinic or c.code == clinic %}<th class="n">{{ c.name }}</th>{% endfor %}</tr>
+{% for day in tbl.days %}<tr><td>{{ day.strftime('%m/%d') }}（{{ day|wd }}）</td>
+{% for c in clinics if not clinic or c.code == clinic %}{% set st = tbl.statuses.get((c.code, day)) %}{% set f = tbl.facts.get((c.code, day, metric)) %}
+  {% if f %}{{ ui.fcell(f, c.code, day, metric, md.unit) }}{% else %}<td class="n {% if st and st.status=='closed' %}cell-closed{% elif st and st.status in ('missing','failed') %}cell-missing{% endif %}">{% if st and st.status in ('missing','failed','closed') %}<span class="small">{{ STATUS_LABEL[st.status] }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>{% endif %}
+{% endfor %}</tr>{% endfor %}
+</table></div>
+
+{% if cats %}<div class="card"><h2>施術カテゴリ別売上の構成（Excelより）</h2><div class="grid">
+{% for code, items in cats.items() %}{% set tot = items.values()|sum %}<div><h3>{{ code }}</h3><table class="small">{% for k, v in items.items() %}<tr><td>{{ k }}</td><td class="n">{{ v|fmt }}</td><td class="n">{{ '%.1f'|format(v / tot * 100 if tot else 0) }}%</td></tr>{% endfor %}</table></div>{% endfor %}
+</div><p class="small muted">施術件数は来院者の実人数ではありません。</p></div>{% endif %}
+<script>
+const pal=['#2457c5','#1f8a4c','#b26a00','#7a5af8','#c0392b'];let i=0;
+new Chart(document.getElementById('ch'),{type:'line',data:{labels:{{ chart.labels|tojson }},datasets:Object.entries({{ chart.series|tojson }}).map(([k,v])=>({label:k,data:v,borderColor:pal[i++%5],spanGaps:false}))},options:{responsive:true}});
+</script>
+{% endblock %}

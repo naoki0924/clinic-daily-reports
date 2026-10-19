@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% import "_m.html" as ui with context %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>{% endblock %}
+{% block content %}
+{% set md = metrics[metric] %}
+<h1>年次レポート <span class="muted small">{{ y }}年・{{ md.name }}</span></h1>
+<form class="filters"><label>年<input type="number" name="year" value="{{ y }}" style="width:90px"></label>
+  <label>指標<select name="metric">{% for k, v in metrics.items() %}<option value="{{ k }}" {% if k==metric %}selected{% endif %}>{{ v.name }}</option>{% endfor %}</select></label>
+  <button>表示</button> <a href="/export?kind=monthly&fmt_=xlsx">月次・年次集計Excel</a></form>
+{% if in_progress %}<p class="small muted">進行中の年のため、前年比は 1/1〜{{ cmp_end.strftime('%m/%d') }} の同じ経過期間で比較しています。</p>{% endif %}
+
+<div class="card scroll"><h2>院別の年間比較</h2>
+<table><tr><th>クリニック</th><th class="n">年間累計</th><th class="n">前年同期間</th><th class="n">前年比</th></tr>
+{% for c in clinics %}<tr><td>{{ c.name }}</td><td class="n">{{ ui.total(ytd[c.code], md.unit) }}</td><td class="n">{{ ui.total(lytd[c.code], md.unit) }}</td>
+<td class="n">{% if lytd[c.code].days_with_value %}{{ ui.delta(ytd[c.code].value, lytd[c.code].value) }}{% else %}<span class="muted">前年データなし</span>{% endif %}</td></tr>{% endfor %}
+{% if all_ytd %}<tr style="font-weight:600"><td>全院合計</td><td class="n">{{ ui.total(all_ytd, md.unit) }}</td><td class="n">{{ ui.total(all_lytd, md.unit) }}</td><td class="n">{% if all_lytd.days_with_value %}{{ ui.delta(all_ytd.value, all_lytd.value) }}{% else %}<span class="muted">前年データなし</span>{% endif %}</td></tr>{% endif %}
+</table></div>
+
+<div class="card"><canvas id="ch" height="80"></canvas></div>
+
+<div class="card scroll"><h2>月別推移</h2>
+<table class="small"><tr><th>月</th>{% for c in clinics %}<th class="n">{{ c.name }}</th>{% endfor %}{% if md.cross_clinic_sum %}<th class="n">全院合計</th><th class="n">前年同月</th><th class="n">前年比</th>{% endif %}</tr>
+{% for p in periods %}{% set lp = lperiods[loop.index0] %}<tr><td>{{ p }}</td>
+{% for c in clinics %}{% set r = cur.get((c.code, p)) %}<td class="n">{% if r %}{{ r.value|fmt(md.unit) }}{% if r.provisional %}<sup style="color:var(--prov)">暫</sup>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+{% if md.cross_clinic_sum %}{% set a = cur.get(('ALL', p)) %}{% set la = last.get(('ALL', lp)) %}
+<td class="n">{% if a %}{{ a.value|fmt(md.unit) }}{% if a.provisional %}<sup style="color:var(--prov)" title="{{ a.note }}">暫</sup>{% endif %}{% else %}—{% endif %}</td>
+<td class="n">{{ la.value|fmt(md.unit) if la else '—' }}</td><td class="n">{% if a and la %}{{ ui.delta(a.value, la.value) }}{% else %}<span class="muted">比較不可</span>{% endif %}</td>{% endif %}
+</tr>{% endfor %}</table>
+<p class="small muted">暫＝未提出・要確認・暫定値を含む月。</p></div>
+<script>
+const pal=['#2457c5','#1f8a4c','#b26a00','#7a5af8'];let i=0;
+new Chart(document.getElementById('ch'),{type:'bar',data:{labels:{{ chart.labels|tojson }},datasets:Object.entries({{ chart.series|tojson }}).map(([k,v])=>({label:k,data:v,backgroundColor:pal[i++%4]}))},options:{responsive:true,scales:{x:{stacked:true},y:{stacked:true}}}});
+</script>
+{% endblock %}

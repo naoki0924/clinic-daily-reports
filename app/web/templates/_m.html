@@ -1,0 +1,19 @@
+{% macro fcell(f, clinic, day, metric, unit='yen') -%}
+{%- if f is none -%}<td class="n muted">—</td>
+{%- else -%}<td class="n {% if f.status=='review' %}cell-review{% elif f.status=='provisional' %}cell-prov{% endif %}"
+  title="{{ FACT_STATUS[f.status] }}{% if f.note %}：{{ f.note }}{% endif %}"><a href="/evidence?clinic={{ clinic }}&day={{ day }}&metric={{ metric }}{% for c in DIM_COLS %}{% if f[c] %}&{{ c }}={{ f[c]|urlencode }}{% endif %}{% endfor %}">{{ fact_text(f, unit) }}</a>{% if f.status=='review' %}<sup class="small" style="color:var(--warn)">要</sup>{% elif f.status=='provisional' %}<sup class="small" style="color:var(--prov)">暫</sup>{% endif %}</td>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro status(st) -%}
+{%- if st -%}<span class="badge b-{{ st.status }}" title="{{ st.note }}">{{ STATUS_LABEL[st.status] }}</span>{%- else -%}<span class="badge b-future">—</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro total(t, unit='yen') -%}
+{%- if t.value is none -%}<span class="muted">—</span>{%- else -%}{{ t.value|fmt(unit) }}{%- endif -%}
+{%- if t.provisional %} <span class="badge b-provisional" title="{{ t.coverage_note }}">暫定</span>{% endif -%}
+{%- endmacro %}
+
+{% macro delta(cur, base) -%}
+{%- set c = compare(cur, base) -%}<span class="{% if c.startswith('+') %}up{% elif c.startswith('-') %}down{% else %}muted{% endif %}">{{ c }}</span>
+{%- endmacro %}

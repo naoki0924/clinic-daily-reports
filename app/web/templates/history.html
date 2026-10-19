@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>変更履歴</h1>
+<div class="card scroll"><h2>手動補正・採用値の選択</h2>
+<table class="small"><tr><th>日時</th><th>担当</th><th>院</th><th>対象日</th><th>指標</th><th>区分</th><th class="n">変更前</th><th class="n">変更後</th><th>理由</th><th>状態</th></tr>
+{% for a in adjs %}<tr><td>{{ a.created_at|jst }}</td><td>{{ a.user }}</td><td>{{ a.clinic_code }}</td><td><a href="/evidence?clinic={{ a.clinic_code }}&day={{ a.target_date }}&metric={{ a.metric }}">{{ a.target_date }}</a></td><td>{{ metrics[a.metric].name }}</td><td>{{ a.dims|tojson_ja if a.dims else '' }}</td><td class="n">{{ a.before_value|fmt }}</td><td class="n">{{ a.after_value|fmt }}</td><td>{{ a.reason }}{% if a.source_obs_id %}（出典 #{{ a.source_obs_id }} を採用）{% endif %}</td><td>{{ '有効' if a.active else '取消/置換' }}</td></tr>
+{% else %}<tr><td colspan="10" class="muted">ありません</td></tr>{% endfor %}</table></div>
+{% if logs %}<div class="card scroll"><h2>操作履歴（管理者のみ表示）</h2>
+<table class="small"><tr><th>日時</th><th>利用者</th><th>操作</th><th>対象</th><th>詳細</th><th>IP</th></tr>
+{% for l in logs %}<tr><td>{{ l.at|jst }}</td><td>{{ l.user }}</td><td>{{ l.action }}</td><td>{{ l.target }}</td><td class="muted">{{ l.detail|tojson_ja }}</td><td>{{ l.ip }}</td></tr>{% endfor %}</table></div>{% endif %}
+{% endblock %}

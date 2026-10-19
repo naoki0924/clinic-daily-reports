@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>設定</h1>
+<div class="card" id="creds"><h2>Talknoteのログイン情報</h2>
+<form method="post" action="/settings/credentials" class="filters"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>ID（メールアドレス）<input name="login_id" value="{{ login_id }}" autocomplete="off" required style="width:260px"></label>
+<label>パスワード（{{ pw_state }}）<input name="password" type="password" autocomplete="new-password" placeholder="変更する場合のみ入力" style="width:220px"></label>
+<button>保存</button></form>
+<p class="small muted">パスワードは暗号化して保存し、画面・ログには表示しません。{% if env_creds %}現在は環境変数のログイン情報を使用しています。{% endif %}保存後、<a href="/ops">稼働状況</a>の「接続テスト」でログイン可否と4院それぞれの取得可否を確認してください。</p></div>
+
+<div class="card" id="schedule"><h2>収集・集計</h2>
+<form method="post" action="/settings/schedule" class="filters"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>自動収集<select name="enabled"><option value="1" {% if sched.enabled %}selected{% endif %}>有効</option><option value="" {% if not sched.enabled %}selected{% endif %}>停止</option></select></label>
+<label>時<input type="number" name="hour" min="0" max="23" value="{{ sched.hour }}" style="width:70px"></label>
+<label>分<input type="number" name="minute" min="0" max="59" value="{{ sched.minute }}" style="width:70px"></label>
+<label>再確認する日数<input type="number" name="recheck_days" min="1" max="120" value="{{ sched.recheck_days }}" style="width:80px"></label>
+<label>過去データの取得開始日<input type="date" name="start_date" value="{{ coll.start_date }}"></label>
+<label>年度の開始月<input type="number" name="fiscal_start" min="1" max="12" value="{{ aggcfg.fiscal_year_start_month }}" style="width:70px"></label>
+<label>原文・原本の保持日数<input type="number" name="raw_days" min="30" value="{{ retention.raw_days }}" style="width:90px"></label>
+<label>AI要約（Claude）<select name="ai_enabled"><option value="" {% if not ai.enabled %}selected{% endif %}>使わない</option><option value="1" {% if ai.enabled %}selected{% endif %}>使う（集計値のみ送信）</option></select></label>
+<button>保存</button></form>
+<p class="small muted">時刻は Asia/Tokyo。月次・年次は暦月・暦年で集計します（年度の開始月は表示用の設定で、年度集計は未実装です）。AI要約にはサーバーの環境変数 ANTHROPIC_API_KEY が必要です。</p></div>
+
+<div class="card" id="notify"><h2>通知先</h2>
+<form method="post" action="/settings/notify" class="filters"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>メールアドレス（カンマ区切り）<input name="emails" value="{{ notify.emails|join(', ') }}" style="width:340px"></label>
+<label>Webhook URL（Slack等）<input name="webhook_url" value="{{ notify.webhook_url }}" style="width:340px"></label><button>保存</button></form>
+<p class="small muted">メール送信にはサーバーの SMTP_HOST 等の設定が必要です。未設定でも通知は稼働状況画面に記録されます。</p></div>
+
+<div class="card scroll" id="clinics"><h2>対象院・営業日</h2>
+{% for c in clinics %}<form method="post" action="/settings/clinic/{{ c.code }}" class="filters"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>コード<input value="{{ c.code }}" disabled style="width:90px"></label>
+<label>名称<input name="name" value="{{ c.name }}"></label>
+<label>ノートID<input name="group_id" type="number" value="{{ c.group_id }}" style="width:100px"></label>
+<label>対象<select name="enabled"><option value="1" {% if c.enabled %}selected{% endif %}>対象</option><option value="" {% if not c.enabled %}selected{% endif %}>対象外</option></select></label>
+<label>定休日<span>{% for i in range(7) %}<label style="display:inline;flex-direction:row"><input type="checkbox" name="closed_weekdays" value="{{ i }}" {% if i in c.closed_weekdays %}checked{% endif %}>{{ '月火水木金土日'[i] }}</label>{% endfor %}</span></label>
+<label>休診日（YYYY-MM-DD, …）<input name="closed_dates" value="{{ c.closed_dates|join(', ') }}" style="width:220px"></label>
+<label>臨時営業日<input name="open_dates" value="{{ c.open_dates|join(', ') }}" style="width:160px"></label>
+<label>開院日（これより前は集計しない）<input type="date" name="open_from" value="{{ c.open_from or '' }}"></label>
+<button>保存</button></form>{% endfor %}
+<p class="small muted">収集先：https://s01.company.talknote.com/danae.jp/group/feed/（ノートID）/。各院の専用ノートだけを収集し、全社ノート・タイムラインは収集しません。</p></div>
+
+<div class="card scroll" id="targets"><h2>目標</h2>
+<form method="post" action="/settings/target" class="filters"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>対象<select name="clinic"><option value="ALL">全院</option>{% for c in clinics %}<option value="{{ c.code }}">{{ c.name }}</option>{% endfor %}</select></label>
+<label>年月<input type="month" name="month" required></label>
+<label>指標<select name="metric">{% for k, v in metrics.items() %}<option value="{{ k }}">{{ v.name }}</option>{% endfor %}</select></label>
+<label>目標値（空欄で削除）<input name="value" inputmode="decimal"></label><button>保存</button></form>
+<table class="small"><tr><th>対象</th><th>年月</th><th>指標</th><th class="n">目標</th></tr>{% for t in targets %}<tr><td>{{ t.clinic_code }}</td><td>{{ t.year }}-{{ '%02d'|format(t.month) }}</td><td>{{ metrics[t.metric].name }}</td><td class="n">{{ t.value|fmt }}</td></tr>{% endfor %}</table></div>
+
+<div class="card" id="rules"><h2>項目対応・読み取りルール（院別・書式別）</h2>
+<p class="small muted">本文の行パターン（正規表現）・表記ゆれ、Excelの見出し文字と指標の対応を院ごとに保存しています。保存すると新しい版になり、指定した日以降を保存済みの原文・原本から再解析します。</p>
+{% for (code, kind), (ver, js) in rules.items() %}
+<details><summary>{{ code }} ／ {{ '本文' if kind=='body' else 'Excel' }}（v{{ ver }}）</summary>
+<form method="post" action="/settings/rule"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="clinic" value="{{ code }}"><input type="hidden" name="kind" value="{{ kind }}">
+<textarea name="rule_json" rows="18">{{ js }}</textarea>
+<div class="filters"><label>変更内容<input name="note" style="width:300px"></label><label>再解析の開始日（任意）<input type="date" name="reparse_from"></label><button>新しい版として保存</button></div></form></details>{% endfor %}
+<h3>版の履歴</h3><table class="small"><tr><th>院</th><th>種類</th><th>版</th><th>有効</th><th>作成</th><th>作成者</th><th>内容</th></tr>
+{% for r in rule_hist %}<tr><td>{{ r.clinic_code }}</td><td>{{ r.kind }}</td><td>v{{ r.version }}</td><td>{{ '○' if r.active else '' }}</td><td>{{ r.created_at|jst }}</td><td>{{ r.created_by }}</td><td>{{ r.note }}</td></tr>{% endfor %}</table></div>
+
+<div class="card" id="users"><h2>利用者・権限</h2>
+<table class="small"><tr><th>ユーザー名</th><th>権限</th><th>閲覧できる院</th><th>有効</th><th>最終ログイン</th></tr>
+{% for x in users %}<tr><td>{{ x.username }}</td><td>{{ {'admin':'管理者','viewer_all':'全院閲覧者','viewer_clinic':'院別閲覧者'}[x.role] }}</td><td>{{ x.clinic_codes|join(', ') }}</td><td>{{ '○' if x.active else '×' }}</td><td>{{ x.last_login|jst }}</td></tr>{% endfor %}</table>
+<form method="post" action="/settings/user" class="filters" style="margin-top:8px"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>ユーザー名<input name="username" required></label><label>パスワード（新規は必須・10文字以上）<input name="password" type="password" autocomplete="new-password"></label>
+<label>権限<select name="role"><option value="viewer_all">全院閲覧者</option><option value="viewer_clinic">院別閲覧者</option><option value="admin">管理者</option></select></label>
+<label>院（院別閲覧者）<select name="clinic_codes" multiple size="4">{% for c in clinics %}<option value="{{ c.code }}">{{ c.name }}</option>{% endfor %}</select></label>
+<label>有効<select name="active"><option value="1">有効</option><option value="">無効</option></select></label><button>追加・更新</button></form></div>
+{% endblock %}

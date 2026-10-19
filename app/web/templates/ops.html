@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>稼働状況</h1>
+<div class="grid">
+<div class="card"><h2>自動収集</h2>
+<table class="small">
+<tr><td>自動収集</td><td>{% if sched.enabled %}<span class="badge b-confirmed">有効</span>{% else %}<span class="badge b-error">停止</span>{% endif %}　毎日 {{ '%02d:%02d'|format(sched.hour, sched.minute) }}（Asia/Tokyo）・直近{{ sched.recheck_days }}日を再確認</td></tr>
+<tr><td>スケジューラー</td><td>{% if scheduler_on %}<span class="badge b-confirmed">このサーバーで稼働中</span>{% else %}<span class="badge b-review">このプロセスでは無効（RUN_SCHEDULER=0）</span>{% endif %}</td></tr>
+<tr><td>次回の実行予定</td><td>{{ next_run.strftime('%Y-%m-%d %H:%M') if next_run else '—' }}</td></tr>
+<tr><td>前回の実行</td><td>{% if last %}<a href="/ops/run/{{ last.id }}">{{ last.queued_at|jst }}</a> {{ last.kind }} <span class="badge b-{{ 'confirmed' if last.status=='success' else 'review' if last.status in ('partial','queued','running') else 'error' }}">{{ last.status }}</span>{% else %}未実行{% endif %}</td></tr>
+<tr><td>ログイン情報</td><td>{% if creds_registered %}<span class="badge b-confirmed">登録済み</span>{% else %}<span class="badge b-error">未登録</span> <a href="/settings#creds">設定する</a>{% endif %}</td></tr>
+<tr><td>再認証</td><td>{% if auth_state.reauth_required %}<span class="badge b-error">必要</span> {{ auth_state.message }}{% else %}<span class="badge b-confirmed">不要</span> <span class="muted">{{ auth_state.message }}</span>{% endif %}</td></tr>
+</table></div>
+<div class="card"><h2>操作</h2>
+<form method="post" action="/ops/run" style="margin-bottom:8px"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button name="action" value="collect">今すぐ収集（直近{{ sched.recheck_days }}日＋未処理期間）</button>
+<button class="sec" name="action" value="test">接続テスト</button>
+<button class="sec" name="action" value="retry">失敗分を再実行</button>
+<button class="sec" name="action" value="backup">バックアップ</button></form>
+<form method="post" action="/ops/run" class="filters"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>開始<input type="date" name="start" required></label><label>終了<input type="date" name="end" required></label>
+<button name="action" value="collect">期間を指定して再取得</button>
+<button class="sec" name="action" value="reaggregate">期間を指定して再解析・再集計（接続なし）</button></form>
+<p class="small muted">処理はサーバー側で順番に実行されます（同時に2つは動きません）。この画面を閉じても続きます。</p>
+</div>
+</div>
+
+<div class="card" id="reauth"><h2>再認証（追加認証が必要な場合）</h2>
+<p class="small">状態：{{ reauth.status }} {{ reauth.message }}</p>
+{% if reauth.screenshot %}<img src="data:image/png;base64,{{ reauth.screenshot }}" style="max-width:480px;border:1px solid var(--line)" alt="Talknoteの認証画面">{% endif %}
+<form method="post" action="/ops/reauth" class="filters"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if reauth.status in ('waiting_code','waiting_code_again') %}<label>認証コード<input name="code" autocomplete="one-time-code" required></label><button name="step" value="code">送信</button>
+{% else %}<button name="step" value="start">再認証を開始</button>{% endif %}</form>
+<p class="small muted">サーバー上のブラウザでTalknoteにログインし、追加認証の画面を表示します。認証コードを入力すると、ログイン状態を暗号化して保存し、次回から収集を再開します。</p></div>
+
+<div class="card scroll"><h2>院別の状況</h2>
+<table class="small"><tr><th>クリニック</th><th>最終取得</th><th class="n">取得投稿数</th><th>最新の対象日</th><th>Excel（成功／失敗／未解析）</th><th>未提出</th><th>取得失敗</th><th>要確認</th></tr>
+{% for r in per_clinic %}<tr><td>{{ r.c.name }}</td><td>{{ r.last_fetch|jst }}</td><td class="n">{{ r.posts }}</td><td>{{ r.last_report or '—' }}</td>
+<td>{{ r.files.get('parsed', 0) }}／<span style="color:var(--err)">{{ r.files.get('failed', 0) + r.files.get('failed_fetch', 0) }}</span>／{{ r.files.get('pending', 0) + r.files.get('stored', 0) }}</td>
+<td>{{ r.days.get('missing', 0) }}</td><td>{{ r.days.get('failed', 0) }}</td><td>{{ r.days.get('review', 0) }}</td></tr>{% endfor %}</table></div>
+
+<div class="card scroll"><h2>実行履歴</h2>
+<table class="small"><tr><th>#</th><th>種類</th><th>状態</th><th>受付</th><th>開始</th><th>終了</th><th>依頼者</th><th>概要</th></tr>
+{% for r in runs %}<tr id="run{{ r.id }}"><td><a href="/ops/run/{{ r.id }}">{{ r.id }}</a></td><td>{{ r.kind }}</td><td><span class="badge b-{{ 'confirmed' if r.status=='success' else 'review' if r.status in ('partial','queued','running') else 'error' }}">{{ r.status }}</span></td>
+<td>{{ r.queued_at|jst }}</td><td>{{ r.started_at|jst }}</td><td>{{ r.finished_at|jst }}</td><td>{{ r.requested_by }}</td><td class="muted">{{ r.summary.get('range_start', '') }}{% if r.summary.get('range_end') %}〜{{ r.summary.range_end }}{% endif %} {{ (r.error or '')[:120] }}</td></tr>{% endfor %}</table></div>
+
+<div class="card"><h2>通知</h2><table class="small">{% for n in notes %}<tr><td>{{ n.created_at|jst }}</td><td><span class="badge b-{{ n.level }}">{{ n.level }}</span></td><td>{{ n.title }}</td><td class="muted">{{ n.channels|tojson_ja }}</td></tr>{% else %}<tr><td class="muted">通知はありません</td></tr>{% endfor %}</table></div>
+{% endblock %}

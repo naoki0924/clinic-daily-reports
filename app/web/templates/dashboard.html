@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% import "_m.html" as ui with context %}
+{% block content %}
+<h1>全院ダッシュボード <span class="muted small">{{ d.day }}（{{ d.day|wd }}）の実績</span></h1>
+
+<div class="grid">
+  <div class="card">
+    <h2>全院 売上（手数料抜き）月累計</h2>
+    <div class="big">{{ ui.total(d.all_mtd) }}</div>
+    <div class="small muted">{{ d.month_start }}〜{{ d.day }}{% if d.all_mtd.coverage_note %}／{{ d.all_mtd.coverage_note }}{% endif %}</div>
+    <table class="small" style="margin-top:8px">
+      <tr><td>前月同期間（{{ d.prev_month_range[0] }}〜{{ d.prev_month_range[1] }}）</td><td class="n">{{ ui.total(d.prev_month) }}</td><td class="n">{% if d.prev_month_cov.insufficient %}<span class="muted">データ不足</span>{% else %}{{ ui.delta(d.all_mtd.value, d.prev_month.value) }}{% endif %}</td></tr>
+      <tr><td>前年同期間</td><td class="n">{{ ui.total(d.last_year) }}</td><td class="n">{% if d.last_year.days_with_value %}{{ ui.delta(d.all_mtd.value, d.last_year.value) }}{% else %}<span class="muted">前年データなし</span>{% endif %}</td></tr>
+      {% if d.all_target %}<tr><td>月間目標</td><td class="n">{{ d.all_target|fmt }}</td><td class="n">達成率 {{ '%.1f'|format((d.all_mtd.value or 0) / d.all_target * 100) }}%</td></tr>{% endif %}
+    </table>
+    <p class="small muted">全院合計は、定義が統一された「売上（手数料抜き）」だけを合算しています。院ごとの売上定義（CPC受託込み等）は院別の画面で確認できます。</p>
+  </div>
+  <div class="card">
+    <h2>確認が必要なもの</h2>
+    {% if d.issue_counts %}<ul class="small">{% for k, n in d.issue_counts.items() %}<li><a href="/issues?kind={{ k }}">{{ KIND.get(k, k) }}</a>：{{ n }}件</li>{% endfor %}</ul>
+    {% else %}<p class="muted">未対応の要確認事項はありません</p>{% endif %}
+    <p class="small">前回の収集：{% if d.last_run %}<a href="/ops/run/{{ d.last_run.id }}">{{ d.last_run.queued_at|jst }}</a> <span class="badge b-{{ 'confirmed' if d.last_run.status=='success' else 'review' if d.last_run.status in ('partial','queued','running') else 'error' }}">{{ d.last_run.status }}</span>{% else %}<span class="muted">未実行</span>{% endif %}</p>
+  </div>
+</div>
+
+<div class="grid">
+{% for c in d.cards %}
+  <div class="card">
+    <h2><a href="/clinic/{{ c.clinic.code }}">{{ c.clinic.name }}</a> {{ ui.status(c.status) }}</h2>
+    {% set s = c.m.sales_net %}
+    <div class="big">{% if s.fact %}<a href="/evidence?clinic={{ c.clinic.code }}&day={{ d.day }}&metric=sales_net">{{ fact_text(s.fact) }}</a>{% if s.fact.status != 'confirmed' %} <span class="badge b-{{ s.fact.status }}">{{ FACT_STATUS[s.fact.status] }}</span>{% endif %}{% else %}<span class="muted" style="font-size:15px">{% if c.status and c.status.status in ('missing','closed','failed') %}{{ STATUS_LABEL[c.status.status] }}{% else %}売上（手数料抜き）の記載なし{% endif %}</span>{% endif %}</div>
+    <div class="small muted">売上（手数料抜き）　前日比 {{ ui.delta(s.fact.value if s.fact else None, s.prev) }}／前週同曜日比 {{ ui.delta(s.fact.value if s.fact else None, s.wk) }}</div>
+    <table class="small" style="margin-top:6px">
+      {% for k, label in [('receipt','入金'),('visitors_new','新規来院'),('contracts','契約'),('inquiries','問い合わせ')] %}
+      <tr><td>{{ label }}</td>{{ ui.fcell(c.m[k].fact, c.clinic.code, d.day, k, metrics[k].unit) }}</tr>
+      {% endfor %}
+      <tr><td>月累計 売上（手数料抜き）</td><td class="n">{{ ui.total(c.mtd) }}</td></tr>
+      {% if c.target %}<tr><td>目標達成率</td><td class="n">{{ '%.1f'|format((c.mtd.value or 0) / c.target * 100) }}%</td></tr>{% endif %}
+    </table>
+  </div>
+{% endfor %}
+</div>
+
+<div class="card scroll">
+  <h2>直近14日の提出状況</h2>
+  <table class="small"><tr><th>クリニック</th>{% for day in d.grid_days %}<th class="n">{{ day.strftime('%m/%d') }}<br>{{ day|wd }}</th>{% endfor %}</tr>
+  {% for c in clinics %}<tr><td>{{ c.name }}</td>{% for day in d.grid_days %}{% set st = d.grid.get((c.code, day)) %}<td class="n">{{ ui.status(st) }}</td>{% endfor %}</tr>{% endfor %}
+  </table>
+</div>
+
+{% if d.note %}
+<div class="card">
+  <h2>分析コメント（{{ d.note.period }}）</h2>
+  <h3>事実（プログラムで計算）</h3><pre>{{ d.note.text_facts }}</pre>
+  {% if d.note.text_hypotheses %}<h3>仮説・確認すべき点（AIによる。事実ではありません）</h3><pre>{{ d.note.text_hypotheses }}</pre>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

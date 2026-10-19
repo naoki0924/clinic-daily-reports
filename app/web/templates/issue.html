@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ KIND.get(i.kind, i.kind) }} <span class="badge b-{{ i.severity }}">{{ {'error':'エラー','warn':'要確認','info':'情報'}[i.severity] }}</span></h1>
+<div class="card">
+  <p><b>{{ i.title }}</b></p>
+  <p class="small">院：{{ i.clinic_code }}　対象日：{{ i.target_date or '—' }}　指標：{{ metrics[i.metric].name if i.metric in metrics else '—' }}
+  {% if post %}　元投稿：<a href="{{ post.url }}" target="_blank" rel="noopener">Talknote</a>（{{ post.posted_at|dt }}）{% if user.role=='admin' %} <a href="/raw/{{ post.post_id }}">原文</a>{% endif %}{% endif %}</p>
+  {% if i.kind == 'body_excel_mismatch' %}
+  <table class="small"><tr><th>出典</th><th class="n">値</th><th>原表記</th><th>位置</th>{% if user.role=='admin' %}<th></th>{% endif %}</tr>
+  {% for k, label in [('body','本文'),('excel','添付Excel')] %}{% set x = i.detail[k] %}
+  <tr><td>{{ label }}</td><td class="n">{{ x.value|fmt }}</td><td>{{ x.raw }}</td><td>{{ x.location }}</td>
+  {% if user.role=='admin' %}<td><form method="post" action="/adopt" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="obs_id" value="{{ x.obs_id }}"><input type="hidden" name="issue_id" value="{{ i.id }}"><input name="reason" placeholder="採用理由" required><button>この値を採用</button></form></td>{% endif %}</tr>{% endfor %}
+  <tr><td>差</td><td class="n">{{ i.detail.diff|fmt }}</td><td colspan="3"></td></tr></table>
+  {% elif i.detail %}<pre>{{ i.detail|tojson_ja }}</pre>{% endif %}
+  {% if ev and ev.fact %}<p class="small">現在の採用値：{{ fact_text(ev.fact) }}（{{ FACT_STATUS[ev.fact.status] }}）{{ ev.fact.note }}
+   <a href="/evidence?clinic={{ i.clinic_code }}&day={{ i.target_date }}&metric={{ i.metric }}">抽出根拠</a></p>{% endif %}
+</div>
+{% if user.role=='admin' %}
+<div class="card"><h2>対応</h2>
+<form method="post" action="/issues/{{ i.id }}/resolve"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input name="note" placeholder="対応内容・メモ" style="width:60%">
+<button name="action" value="resolve">対応済にする</button> <button class="sec" name="action" value="ignore">対象外にする</button> <button class="sec" name="action" value="reopen">未対応に戻す</button></form>
+{% if i.target_date and i.metric %}<p class="small"><a href="/adjust?clinic={{ i.clinic_code }}&day={{ i.target_date }}&metric={{ i.metric }}">値を手動で補正する</a></p>{% endif %}
+<p class="small muted">状態：{{ i.status }} {{ i.resolution }} {{ i.resolved_by }} {{ i.resolved_at|jst if i.resolved_at else '' }}</p></div>
+{% endif %}
+{% endblock %}

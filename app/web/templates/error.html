@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:460px;margin:60px auto">
+  <h1>{{ message }}</h1>
+  {% if user %}<p class="muted">{{ user.username }} でログイン中です。{% if status == 403 %}必要な場合は管理者に権限の変更を依頼してください。{% endif %}</p>{% endif %}
+  <p><a href="/"><button type="button">ダッシュボードへ</button></a>
+  {% if user %}<form class="inline" method="post" action="/logout"><button class="sec">別のユーザーでログイン</button></form>{% endif %}</p>
+</div>
+{% endblock %}

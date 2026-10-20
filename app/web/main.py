@@ -18,9 +18,11 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from .. import aggregate as ag
@@ -109,10 +111,41 @@ def current_user(request: Request, s=Depends(get_db)) -> AppUser:
     return u
 
 
+ADMIN_PATHS = ("/ops", "/settings", "/raw", "/adjust")  # 管理者だけが開ける画面
+
+
 def require_admin(u: AppUser = Depends(current_user)) -> AppUser:
     if u.role != "admin":
         raise HTTPException(403, "管理者のみ操作できます")
     return u
+
+
+def _after_login_path(next_path: str, u: AppUser) -> str:
+    """ログイン後の移動先。外部URLは受け付けず、管理者以外が管理者専用画面を指定していればダッシュボードへ。"""
+    if not next_path.startswith("/") or next_path.startswith("//"):
+        return "/"
+    if u.role != "admin" and next_path.startswith(ADMIN_PATHS):
+        return "/"
+    return next_path
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error(request: Request, exc: StarletteHTTPException):
+    """画面の操作で起きた権限なし・見つからないは、JSONではなく案内つきの画面で返す。"""
+    if request.method != "GET" or "text/html" not in request.headers.get("accept", "") or exc.status_code not in (403, 404):
+        return await http_exception_handler(request, exc)
+    s = SessionLocal()
+    try:
+        uid = request.session.get("uid")
+        u = s.get(AppUser, uid) if uid and request.session.get("iid") == instance_id(s) else None
+        msg = {403: "この画面を開く権限がありません。", 404: "ページが見つかりません。"}[exc.status_code]
+        if exc.status_code == 403 and exc.detail == "管理者のみ操作できます":
+            msg = "この画面は管理者のみ開けます。"
+        resp = render(request, "error.html", {"message": msg, "status": exc.status_code}, s, u)
+        resp.status_code = exc.status_code
+        return resp
+    finally:
+        s.close()
 
 
 def allowed_codes(s, u: AppUser) -> list[str]:
@@ -271,7 +304,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
     request.session["iid"] = instance_id(s)
     u.last_login = datetime.utcnow()
     audit(s, request, u.username, "login")
-    return RedirectResponse(next if next.startswith("/") else "/", status_code=303)
+    return RedirectResponse(_after_login_path(next, u), status_code=303)
 
 
 @app.post("/logout")

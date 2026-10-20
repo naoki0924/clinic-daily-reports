@@ -101,3 +101,20 @@ def test_login_required():
     c = TestClient(app)
     r = c.get("/", follow_redirects=False)
     assert r.status_code == 303 and "/login" in r.headers["location"]
+
+
+def test_viewer_login_with_admin_next_goes_to_dashboard_and_403_is_a_page():
+    """管理者以外が「/login?next=/ops」からログインしても、管理者専用画面ではなくダッシュボードへ移る。"""
+    from app.web.main import app
+    with session_scope() as s:
+        s.add(AppUser(username="viewer1", password_hash=hash_password(PW), role="viewer_all", clinic_codes=[]))
+    c = TestClient(app)
+    tok = re.search(r'name="csrf" value="([^"]+)"', c.get("/login?next=/ops").text).group(1)
+    r = c.post("/login", data={"username": "viewer1", "password": PW, "csrf": tok, "next": "/ops"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    tok = re.search(r'name="csrf" value="([^"]+)"', c.get("/login").text).group(1)
+    r = c.post("/login", data={"username": "viewer1", "password": PW, "csrf": tok, "next": "//evil.example"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+    r = c.get("/ops", headers={"accept": "text/html"})
+    assert r.status_code == 403 and "管理者のみ" in r.text and "ダッシュボードへ" in r.text and '"detail"' not in r.text
+    assert c.get("/", headers={"accept": "text/html"}).status_code == 200

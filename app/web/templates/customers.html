@@ -62,13 +62,15 @@ td.items{max-width:420px;white-space:normal}.cust td{white-space:nowrap}
   <label>区分<select name="seg"><option value="">すべて</option>{% for k in segs %}<option {% if k == seg %}selected{% endif %}>{{ k }}</option>{% endfor %}</select></label>
   <label>支払い方法<select name="method"><option value="">すべて</option>{% for k in methods %}<option {% if k == method %}selected{% endif %}>{{ k }}</option>{% endfor %}</select></label>
   <label>並び順<select name="sort"><option value="date" {% if sort=='date' %}selected{% endif %}>日付順</option><option value="amount" {% if sort=='amount' %}selected{% endif %}>金額の高い順</option><option value="amount_asc" {% if sort=='amount_asc' %}selected{% endif %}>金額の低い順</option></select></label>
+  <label style="flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--ink)"><input type="checkbox" name="zero" value="1" {% if zero %}checked{% endif %}>0円の行も表示{% if zero_rows %}（{{ zero_rows }}件）{% endif %}</label>
   <button class="sec">絞り込む</button>
 </form>
-<table class="small cust"><tr><th>日付</th><th>クリニック</th><th>お客様の区分</th><th class="n"><a style="color:#fff" title="クリックで並べ替え" href="?clinic={{ clinic }}&view={{ view }}&month={{ '%04d-%02d'|format(y, m) }}&year={{ y }}&seg={{ seg|urlencode }}&method={{ method|urlencode }}&sort={{ 'amount_asc' if sort == 'amount' else 'amount' }}">金額 {{ '▼' if sort == 'amount' else ('▲' if sort == 'amount_asc' else '⇅') }}</a></th><th>支払い方法</th><th>内容</th></tr>
+<table class="small cust"><tr><th>日付</th><th>クリニック</th><th>お客様の区分</th><th class="n"><a style="color:#fff" title="クリックで並べ替え" href="?clinic={{ clinic }}&view={{ view }}&month={{ '%04d-%02d'|format(y, m) }}&year={{ y }}&seg={{ seg|urlencode }}&method={{ method|urlencode }}&zero={{ zero }}&sort={{ 'amount_asc' if sort == 'amount' else 'amount' }}">金額 {{ '▼' if sort == 'amount' else ('▲' if sort == 'amount_asc' else '⇅') }}</a></th><th>支払い方法</th><th>内容</th></tr>
 {% for v in rows %}<tr><td>{{ v.day.strftime('%m/%d') }}（{{ '月火水木金土日'[v.day.weekday()] }}）</td><td>{{ cname[v.clinic] }}</td><td>{{ v.segment }}{% if v.kind == '物販' %} <span class="badge b-info">物販</span>{% endif %}</td>
 <td class="n"><b>{{ v.amount|fmt }}</b></td><td>{{ v.method or '記載なし' }}</td><td class="items">{{ v.text or '—' }}</td></tr>
 {% else %}<tr><td colspan="6" class="muted">この期間の記載がありません</td></tr>{% endfor %}
 </table>
+{% if zero_rows and not zero %}<p class="small muted">日報に「￥0」と書かれた来院 {{ zero_rows }}件は表示していません（「0円の行も表示」で表示できます）。</p>{% endif %}
 {% if total_rows > limit %}<p class="small muted">全{{ total_rows }}件のうち{{ limit }}件を表示しています。区分・支払い方法で絞り込むか、月で表示してください。</p>{% endif %}
 </div>
 <script>

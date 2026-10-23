@@ -530,7 +530,7 @@ def payments_view(request: Request, clinic: str = "ALL", view: str = "month", mo
 
 @app.get("/customers", response_class=HTMLResponse)
 def customers_view(request: Request, clinic: str = "ALL", view: str = "month", month: str | None = None,
-                   year: int | None = None, sort: str = "date", seg: str = "", method: str = "",
+                   year: int | None = None, sort: str = "date", seg: str = "", method: str = "", zero: int = 0,
                    s=Depends(get_db), u=Depends(current_user)):
     """客単価と、お客様（来院）ごとの支払い。"""
     from collections import Counter, defaultdict
@@ -555,6 +555,9 @@ def customers_view(request: Request, clinic: str = "ALL", view: str = "month", m
     segs = sorted({v.segment for v in vs})
     methods = sorted({v.method or "記載なし" for v in vs})
     shown = [v for v in vs if (not seg or v.segment == seg) and (not method or (v.method or "記載なし") == method)]
+    zero_rows = sum(1 for v in shown if not v.amount)
+    if not zero:  # 0円の行（日報に「￥0」と書かれた来院）は既定で表示しない
+        shown = [v for v in shown if v.amount]
     if sort == "amount":            # 金額の高い順
         shown.sort(key=lambda v: (-(v.amount or 0), v.day))
     elif sort == "amount_asc":      # 金額の低い順
@@ -576,7 +579,7 @@ def customers_view(request: Request, clinic: str = "ALL", view: str = "month", m
         prev=prev, running=running, prices=prices, prev_prices=prev_prices, rows=shown[:limit], total_rows=len(shown),
         limit=limit, paid=paid, by_seg=sorted(by_seg.items(), key=lambda kv: -sum(kv[1])),
         by_method=sorted(by_method.items(), key=lambda kv: -sum(kv[1])), band_counts=band_counts,
-        segs=segs, methods=methods, seg=seg, method=method, sort=sort,
+        segs=segs, methods=methods, seg=seg, method=method, sort=sort, zero=zero, zero_rows=zero_rows,
         visit_clinics=[c for c in sel if c in CU.VISIT_CLINICS], VISITOR_LABEL={
             "visitors_total": "来院者数", "treatment_count": "来院件数（【概要】）"}), s, u)
 

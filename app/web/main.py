@@ -497,6 +497,37 @@ def market_view(request: Request, view: str = "year", month: str | None = None, 
         review=M.review_days(s, codes, start, end), order=M.MARKET_ORDER), s, u)
 
 
+@app.get("/payments", response_class=HTMLResponse)
+def payments_view(request: Request, clinic: str = "ALL", view: str = "month", month: str | None = None,
+                  year: int | None = None, s=Depends(get_db), u=Depends(current_user)):
+    """入金の支払い方法別の内訳（全院・各院、月・年）。"""
+    from .. import menu as M
+    from .. import payments as P
+
+    today = ag.today_jst()
+    yesterday = today - timedelta(days=1)
+    codes = allowed_codes(s, u)
+    sel = [clinic] if clinic in codes else codes
+    clinic = clinic if clinic in codes else "ALL"
+    if view == "year":
+        y, m = (year or yesterday.year), 1
+    else:
+        view = "month"
+        y, m = _ym(month, yesterday)
+    start, end, prev, label, running = M.period_range(view, y, m, today)
+    data = P.collect(s, sel, start, end)
+    cur = P.summarize(data, sel)
+    prev_sum = P.summarize(P.collect(s, sel, prev[0], prev[1]), sel)
+    year_data = P.collect(s, sel, date(start.year, 1, 1), min(date(start.year, 12, 31), yesterday))
+    key = clinic if clinic != "ALL" else "ALL"
+    return render(request, "payments.html", dict(
+        clinics=Q.clinics(s, codes), clinic=clinic, view=view, y=y, m=m, label=label, prev=prev, running=running,
+        cur=cur[key], prev_t=prev_sum[key], per_clinic=[(c, cur[c.code]) for c in Q.clinics(s, sel)] if clinic == "ALL" else [],
+        monthly=P.monthly(year_data, sel), daily=P.daily_rows(data, sel) if view == "month" else [],
+        review=sum(data["_review"].get(c, 0) for c in sel), MAIN=P.MAIN, APPS=P.APPS, OTHER=P.OTHER, CARD=P.CARD,
+        COLORS=P.COLORS, bio=P.bio_segments(s, start, end, data["_review_days"].get("bio")) if clinic in ("bio", "ALL") and "bio" in sel else {}), s, u)
+
+
 def _filters(request: Request):
     qp = request.query_params
     return {c: qp.get(c, "") for c in DIM_COLS if qp.get(c)}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block head %}<style>
+.pay-hero{display:grid;gap:18px;grid-template-columns:minmax(240px,320px) 1fr;align-items:center}
+@media (max-width:820px){.pay-hero{grid-template-columns:1fr}}
+.donut{position:relative;height:260px}.donut .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.donut .center b{font-size:28px;font-weight:300}.donut .center span{font-size:11px;color:var(--muted);letter-spacing:.06em}
+tr.sub td{color:var(--muted);font-size:12px}tr.sub td:first-child{padding-left:28px}
+</style>{% endblock %}
+{% block content %}
+{% set clinic_name = {'ALL': '全院合計'} %}{% for c in clinics %}{% set _ = clinic_name.update({c.code: c.name}) %}{% endfor %}
+<h1>入金の支払い方法 <span class="muted small">{{ clinic_name[clinic] }}・{{ label }}</span></h1>
+<form class="filters">
+  <label>クリニック<select name="clinic"><option value="ALL">全院合計</option>
+    {% for c in clinics %}<option value="{{ c.code }}" {% if c.code == clinic %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+  <label>期間<select name="view"><option value="month" {% if view=='month' %}selected{% endif %}>月</option><option value="year" {% if view=='year' %}selected{% endif %}>年</option></select></label>
+  <label>月<input type="month" name="month" value="{{ '%04d-%02d'|format(y, m) }}"></label>
+  <label>年<input type="number" name="year" value="{{ y }}" style="width:80px"></label>
+  <button>表示</button>
+</form>
+<p class="small muted">各院Excelの「入金合計」と、その内訳（現金・クレジット・アプリ決済 計・振込・デポジット）です。WeChatPay・Alipay・銀聯は「クレジット・アプリ決済」の内数なので、下に内訳として示します（合計には二重に足しません）。
+内訳の合計が入金合計と合わない分は「{{ OTHER }}」として示します。日報は日ごとの合計のため、1件ごとの入金は分かりません。
+{% if review %}<span style="color:var(--warn)">要確認 {{ review }}日分は含めていません。</span>{% endif %}
+比較：{{ '前年同期間' if view=='year' else ('前月同期間' if running else '前月') }}（{{ prev[0] }}〜{{ prev[1] }}）。</p>
+
+{% set t = cur %}{% set p = prev_t %}
+<div class="card">
+  {% if t.receipt %}
+  <div class="pay-hero">
+    <div class="donut"><canvas id="payDonut"></canvas><div class="center"><span>入金合計</span><b>{{ t.receipt|man }}</b><span>{{ "延べ" if clinic == "ALL" }}{{ t.days }}日分</span></div></div>
+    <table class="small">
+      <tr><th>支払い方法</th><th class="n">金額</th><th class="n">構成比</th><th class="n">比較期間</th></tr>
+      {% for k in MAIN %}{% set v = t.main[k] %}{% set pv = p.main[k] %}
+      <tr><td><span class="sw" style="background:{{ COLORS[k] }}"></span>{{ k }}</td><td class="n">{{ v|fmt }}</td>
+        <td class="n"><b>{{ '%.1f'|format(v / t.receipt * 100) }}%</b></td>
+        <td class="n">{% if p.receipt %}{{ '%.1f'|format(pv / p.receipt * 100) }}%（{{ '%+.1f'|format(v / t.receipt * 100 - pv / p.receipt * 100) }}pt）{% else %}<span class="muted">データなし</span>{% endif %}</td></tr>
+      {% if k == 'クレジット・アプリ決済' and v %}
+        {% for a in APPS %}{% if t.apps[a] %}<tr class="sub"><td>うち {{ a }}</td><td class="n">{{ t.apps[a]|fmt }}</td><td class="n">{{ '%.1f'|format(t.apps[a] / t.receipt * 100) }}%</td><td></td></tr>{% endif %}{% endfor %}
+        {% if t.apps.values()|sum %}<tr class="sub"><td>うち {{ CARD }}</td><td class="n">{{ t.card|fmt }}</td><td class="n">{{ '%.1f'|format(t.card / t.receipt * 100) }}%</td><td></td></tr>{% endif %}
+      {% endif %}
+      {% endfor %}
+      {% if t.other|abs >= 1 %}<tr><td><span class="sw" style="background:{{ COLORS[OTHER] }}"></span>{{ OTHER }}<span class="muted">（入金合計との差）</span></td>
+        <td class="n">{{ t.other|fmt }}</td><td class="n">{{ '%.1f'|format(t.other / t.receipt * 100) }}%</td><td></td></tr>{% endif %}
+      <tr style="font-weight:600"><td>入金合計</td><td class="n">{{ t.receipt|fmt }}</td><td class="n">100%</td>
+        <td class="n">{% if p.receipt %}{{ p.receipt|fmt }}{% endif %}</td></tr>
+    </table>
+  </div>
+  {% else %}<p class="muted">この期間の入金の記録がありません。</p>{% endif %}
+</div>
+
+{% if per_clinic %}
+<div class="card scroll"><h2>院別</h2>
+<table class="small"><tr><th>クリニック</th><th class="n">入金合計</th>{% for k in MAIN %}<th class="n">{{ k }}</th>{% endfor %}<th class="n">WeChatPay・Alipay・銀聯</th><th class="n">{{ OTHER }}</th></tr>
+{% for c, ct in per_clinic %}<tr><td><a href="/payments?clinic={{ c.code }}&view={{ view }}&month={{ '%04d-%02d'|format(y, m) }}&year={{ y }}">{{ c.name }}</a></td>
+<td class="n"><b>{{ ct.receipt|fmt if ct.receipt else '—' }}</b></td>
+{% for k in MAIN %}<td class="n">{% if ct.receipt %}{{ ct.main[k]|fmt }}<br><span class="muted">{{ '%.1f'|format(ct.main[k] / ct.receipt * 100) }}%</span>{% else %}—{% endif %}</td>{% endfor %}
+<td class="n">{{ (ct.apps.values()|sum)|fmt if ct.receipt else '—' }}</td><td class="n">{{ ct.other|fmt if ct.receipt else '—' }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+
+<div class="card"><h2>月別の支払い方法（{{ y }}年）</h2>
+<div style="position:relative;height:300px"><canvas id="payMonthly"></canvas></div>
+<div class="scroll"><table class="small" style="margin-top:10px"><tr><th>月</th><th class="n">入金合計</th>{% for k in MAIN %}<th class="n">{{ k }}</th>{% endfor %}<th class="n">{{ OTHER }}</th></tr>
+{% for mo, mt in monthly.items() %}<tr><td>{{ mo }}</td><td class="n"><b>{{ mt.receipt|fmt }}</b></td>
+{% for k in MAIN %}<td class="n">{{ mt.main[k]|fmt }}<br><span class="muted">{{ '%.1f'|format(mt.main[k] / mt.receipt * 100) if mt.receipt else '—' }}%</span></td>{% endfor %}
+<td class="n">{{ mt.other|fmt }}</td></tr>{% else %}<tr><td class="muted" colspan="7">データがありません</td></tr>{% endfor %}
+</table></div></div>
+
+{% if daily %}
+<div class="card scroll"><h2>日別（{{ y }}年{{ m }}月）</h2>
+<table class="small"><tr><th>日付</th><th class="n">入金合計</th>{% for k in MAIN %}<th class="n">{{ k }}</th>{% endfor %}<th class="n">うちWeChatPay・Alipay・銀聯</th><th class="n">{{ OTHER }}</th></tr>
+{% for d, dt in daily %}<tr><td>{{ d.strftime('%m/%d') }}（{{ '月火水木金土日'[d.weekday()] }}）</td><td class="n"><b>{{ dt.receipt|fmt }}</b></td>
+{% for k in MAIN %}<td class="n">{{ dt.main[k]|fmt if dt.main[k] else '—' }}</td>{% endfor %}
+<td class="n">{{ (dt.apps.values()|sum)|fmt if dt.apps.values()|sum else '—' }}</td><td class="n">{{ dt.other|fmt if dt.other|abs >= 1 else '—' }}</td></tr>{% endfor %}
+</table>
+{% if clinic == 'ALL' %}<p class="small muted">全院合計の日別です。院ごとの日別はクリニックを選んで表示してください。</p>{% endif %}</div>
+{% endif %}
+
+{% if bio %}
+<div class="card scroll"><h2>BiO STYLE CLINIC：区分別×支払い方法（本文の記載）</h2>
+{% set methods = [] %}{% for seg, d in bio.items() %}{% for mth in d %}{% if mth not in methods %}{% set _ = methods.append(mth) %}{% endif %}{% endfor %}{% endfor %}
+<table class="small"><tr><th>区分</th>{% for mth in methods %}<th class="n">{{ mth }}</th>{% endfor %}<th class="n">合計</th></tr>
+{% for seg, d in bio.items() %}<tr><td>{{ seg }}</td>{% for mth in methods %}<td class="n">{{ d.get(mth)|fmt if d.get(mth) else '—' }}</td>{% endfor %}<td class="n"><b>{{ (d.values()|sum)|fmt }}</b></td></tr>{% endfor %}
+</table>
+<p class="small muted">BiOの日報本文にある区分（一般・インバウンド・AIMS/ITEC・BTS・再生美容）ごとの記載です。「売掛」は未回収分で入金ではありません。本文の値のため、上のExcelの入金合計とは一致しないことがあります。</p></div>
+{% endif %}
+
+<script>
+const C={{ COLORS|tojson }}, MAIN={{ MAIN|tojson }}, OTHER={{ OTHER|tojson }};
+const t={{ cur|tojson }};
+if(document.getElementById('payDonut')){
+  const labels=MAIN.filter(k=>t.main[k]>0), vals=labels.map(k=>t.main[k]);
+  if(t.other>=1){labels.push(OTHER);vals.push(t.other);}
+  new Chart(document.getElementById('payDonut'),{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:labels.map(l=>C[l]||'#999')}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'72%',plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:c=>`${c.label}: ${c.parsed.toLocaleString()}円（${(c.parsed/t.receipt*100).toFixed(1)}%）`}}}}});
+}
+const mon={{ monthly|tojson }}, months=Object.keys(mon);
+if(months.length){
+  const ds=MAIN.map(k=>({label:k,data:months.map(mo=>mon[mo].main[k]),backgroundColor:C[k],stack:'s'}));
+  ds.push({label:OTHER,data:months.map(mo=>Math.max(0,mon[mo].other)),backgroundColor:C[OTHER],stack:'s'});
+  new Chart(document.getElementById('payMonthly'),{type:'bar',data:{labels:months.map(x=>x.slice(5)+'月'),datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>(v/10000).toLocaleString()+'万'}}},
+      plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y.toLocaleString()}円`}}}}});
+}
+</script>
+{% endblock %}

@@ -433,3 +433,16 @@ def test_backup_is_db_only_and_cleans_leftovers():
     assert not list(backup_dir().glob("db-*.tmp"))
     run_backup(keep=2); run_backup(keep=2)
     assert len(list(backup_dir().glob("backup-*.zip"))) <= 2
+
+
+def test_payment_breakdown_does_not_double_count_apps_and_shows_gap():
+    """入金合計＝現金＋クレジット・アプリ決済（WeChatPay等を含む計）＋振込＋デポジット。合わない分は差として示す。"""
+    from app.payments import _day, total
+    d1 = _day({"receipt": 1000.0, "payment:現金": 100.0, "payment:クレジット": 500.0, "payment:WeChatPay": 200.0,
+               "transfer": 300.0, "deposit": 100.0})
+    assert d1["main"] == {"現金": 100.0, "クレジット・アプリ決済": 500.0, "振込": 300.0, "デポジット": 100.0}
+    assert d1["other"] == 0 and d1["apps"]["WeChatPay"] == 200.0          # WeChatPayは内数（足さない）
+    d2 = _day({"receipt": 900.0, "payment:クレジット": 300.0, "payment:デポジット": 400.0})  # 9ru：本文だけのデポジット
+    assert d2["main"]["デポジット"] == 400.0 and d2["other"] == 200.0      # 合わない分は差として残す
+    t = total({date(2026, 10, 1): d1, date(2026, 10, 2): d2})
+    assert t["receipt"] == 1900.0 and t["card"] == 800.0 - 200.0 and t["days"] == 2

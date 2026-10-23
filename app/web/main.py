@@ -555,8 +555,12 @@ def customers_view(request: Request, clinic: str = "ALL", view: str = "month", m
     segs = sorted({v.segment for v in vs})
     methods = sorted({v.method or "記載なし" for v in vs})
     shown = [v for v in vs if (not seg or v.segment == seg) and (not method or (v.method or "記載なし") == method)]
-    if sort == "amount":
-        shown.sort(key=lambda v: -(v.amount or 0))
+    if sort == "amount":            # 金額の高い順
+        shown.sort(key=lambda v: (-(v.amount or 0), v.day))
+    elif sort == "amount_asc":      # 金額の低い順
+        shown.sort(key=lambda v: ((v.amount or 0), v.day))
+    else:
+        sort = "date"
     paid = [v for v in shown if v.amount]
     by_seg: dict[str, list] = defaultdict(list)
     by_method: dict[str, list] = defaultdict(list)

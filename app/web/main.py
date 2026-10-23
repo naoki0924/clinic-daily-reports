@@ -528,6 +528,55 @@ def payments_view(request: Request, clinic: str = "ALL", view: str = "month", mo
         COLORS=P.COLORS, bio=P.bio_segments(s, start, end, data["_review_days"].get("bio")) if clinic in ("bio", "ALL") and "bio" in sel else {}), s, u)
 
 
+@app.get("/customers", response_class=HTMLResponse)
+def customers_view(request: Request, clinic: str = "ALL", view: str = "month", month: str | None = None,
+                   year: int | None = None, sort: str = "date", seg: str = "", method: str = "",
+                   s=Depends(get_db), u=Depends(current_user)):
+    """客単価と、お客様（来院）ごとの支払い。"""
+    from collections import Counter, defaultdict
+
+    from .. import customers as CU
+    from .. import menu as M
+
+    today = ag.today_jst()
+    yesterday = today - timedelta(days=1)
+    codes = allowed_codes(s, u)
+    sel = [clinic] if clinic in codes else codes
+    clinic = clinic if clinic in codes else "ALL"
+    if view == "year":
+        y, m = (year or yesterday.year), 1
+    else:
+        view = "month"
+        y, m = _ym(month, yesterday)
+    start, end, prev, label, running = M.period_range(view, y, m, today)
+    prices = CU.unit_prices(s, sel, start, end)
+    prev_prices = CU.unit_prices(s, sel, prev[0], prev[1])
+    vs = CU.visits(s, sel, start, end)
+    segs = sorted({v.segment for v in vs})
+    methods = sorted({v.method or "記載なし" for v in vs})
+    shown = [v for v in vs if (not seg or v.segment == seg) and (not method or (v.method or "記載なし") == method)]
+    if sort == "amount":
+        shown.sort(key=lambda v: -(v.amount or 0))
+    paid = [v for v in shown if v.amount]
+    by_seg: dict[str, list] = defaultdict(list)
+    by_method: dict[str, list] = defaultdict(list)
+    for v in paid:
+        by_seg[v.segment].append(v.amount)
+        by_method[v.method or "記載なし"].append(v.amount)
+    bands = [(0, 10000, "1万円未満"), (10000, 50000, "1万〜5万円"), (50000, 100000, "5万〜10万円"),
+             (100000, 500000, "10万〜50万円"), (500000, 1000000, "50万〜100万円"), (1000000, None, "100万円以上")]
+    band_counts = [(lbl, sum(1 for v in paid if v.amount >= lo and (hi is None or v.amount < hi))) for lo, hi, lbl in bands]
+    limit = 500
+    return render(request, "customers.html", dict(
+        clinics=Q.clinics(s, codes), price_clinics=Q.clinics(s, sel), clinic=clinic, view=view, y=y, m=m, label=label,
+        prev=prev, running=running, prices=prices, prev_prices=prev_prices, rows=shown[:limit], total_rows=len(shown),
+        limit=limit, paid=paid, by_seg=sorted(by_seg.items(), key=lambda kv: -sum(kv[1])),
+        by_method=sorted(by_method.items(), key=lambda kv: -sum(kv[1])), band_counts=band_counts,
+        segs=segs, methods=methods, seg=seg, method=method, sort=sort,
+        visit_clinics=[c for c in sel if c in CU.VISIT_CLINICS], VISITOR_LABEL={
+            "visitors_total": "来院者数", "treatment_count": "来院件数（【概要】）"}), s, u)
+
+
 def _filters(request: Request):
     qp = request.query_params
     return {c: qp.get(c, "") for c in DIM_COLS if qp.get(c)}

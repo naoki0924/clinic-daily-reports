@@ -446,3 +446,24 @@ def test_payment_breakdown_does_not_double_count_apps_and_shows_gap():
     assert d2["main"]["デポジット"] == 400.0 and d2["other"] == 200.0      # 合わない分は差として残す
     t = total({date(2026, 10, 1): d1, date(2026, 10, 2): d2})
     assert t["receipt"] == 1900.0 and t["card"] == 800.0 - 200.0 and t["days"] == 2
+
+
+def test_customer_visits_are_parsed_without_names():
+    """来院ごとの支払い（9ru・PREVENTION）。氏名・支払い方法以外の括弧書きは出さない。（架空の文面）"""
+    from app.customers import parse_9ru, parse_prevention
+    d = date(2026, 10, 20)
+    t9 = ("10月20日 火曜日\n【売上入金】\n　売上　￥500,000\n\n【新規来院/契約数】新規1件/契約0件\n・来客者合計人数 3名\n"
+          "　　インバウンド新規のお客様　1名\n\n・インバウンド新規のお客様\n　　点滴A×1\n　　検査B×1　　￥200,000（振込）\n\n"
+          "　　点滴A×1　　￥50,000（デポジット/提携先）\n\n・既存ゲストのお客様\n　　山田様 注射C×1　　99,000円（カード）\n\n"
+          "【物販】1件\n・社販\n　　薬剤×1　　¥1,720（現金）\n\n【問合せ】0件\n記入 テスト")
+    v = parse_9ru(t9, "9ru", d)
+    assert [(x.kind, x.segment, x.amount, x.method) for x in v] == [
+        ("来院", "インバウンド新規のお客様", 200000, "振込"), ("来院", "インバウンド新規のお客様", 50000, "デポジット"),
+        ("来院", "ゲスト既存のお客様", 99000, "クレジット"), ("物販", "社販", 1720, "現金")]
+    assert v[0].items == ["点滴A×1", "検査B×1"]
+    assert "山田" not in v[2].text and "（氏名）" in v[2].text
+    tp = ("【売上入金】\n売上（手数料抜き）￥30,000\n【入金内訳】\n現金 ￥8,000\n【新規来院】1名\n来院者合計人数 2名\n"
+          "・温熱療法　￥0\n・点滴D　￥22,000（クレジット）\n・Completed ¥ 8,000 （たろちゃん）※インバウンド\n【問い合わせ]-件\n・メモ ￥999")
+    p = parse_prevention(tp, "prevention", d)
+    assert [(x.amount, x.method, x.segment) for x in p] == [(0, "", "国内"), (22000, "クレジット", "国内"), (8000, "", "インバウンド")]
+    assert all("たろ" not in x.text and "たろ" not in x.method_raw for x in p)

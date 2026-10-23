@@ -403,3 +403,33 @@ def test_market_split_from_excel_and_share():
         assert sh["9ru"] == {"国内": 30000, "インバウンド": 70000}
         assert sh["ALL"]["インバウンド"] == 70000
         assert s.scalar(select(Issue).where(Issue.title.like("%国内・インバウンド等の合計%"))) is None
+
+
+def test_vault_compressed_format_reads_legacy_and_compacts():
+    """原本は圧縮＋暗号化のバイナリで保存。旧形式（暗号化トークンの文字列）も読め、変換後も中身は同じ。"""
+    from app.config import settings
+    from app.security import VAULT_MAGIC, compact_vault, encrypt_bytes, load_file, store_file
+    data = (b"<row>" + b"1234567890" * 50 + b"</row>") * 2000
+    rel = store_file("t_new", data)
+    raw = (settings.data_dir / rel).read_bytes()
+    assert raw.startswith(VAULT_MAGIC) and len(raw) < len(data) / 5 and load_file(rel) == data
+    legacy = settings.data_dir / "vault" / "t_old.bin"
+    legacy.write_bytes(encrypt_bytes(data))           # 旧形式
+    assert load_file("vault/t_old.bin") == data
+    before = legacy.stat().st_size
+    r = compact_vault()
+    assert r["converted"] >= 1 and r["errors"] == 0
+    assert legacy.read_bytes().startswith(VAULT_MAGIC) and legacy.stat().st_size < before
+    assert load_file("vault/t_old.bin") == data
+
+
+def test_backup_is_db_only_and_cleans_leftovers():
+    import zipfile
+    from app.backup import backup_dir, run_backup
+    (backup_dir() / "db-19990101-000000.tmp").write_bytes(b"x" * 10)   # 途中で止まった一時ファイル
+    out = run_backup(keep=2)
+    names = zipfile.ZipFile(out).namelist()
+    assert names == ["app.db"]                                          # 原本（vault）は含めない
+    assert not list(backup_dir().glob("db-*.tmp"))
+    run_backup(keep=2); run_backup(keep=2)
+    assert len(list(backup_dir().glob("backup-*.zip"))) <= 2

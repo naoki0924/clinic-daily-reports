@@ -11,6 +11,13 @@
 <tr><td>ログイン情報</td><td>{% if creds_registered %}<span class="badge b-confirmed">登録済み</span>{% else %}<span class="badge b-error">未登録</span> <a href="/settings#creds">設定する</a>{% endif %}</td></tr>
 <tr><td>再認証</td><td>{% if auth_state.reauth_required %}<span class="badge b-error">必要</span> {{ auth_state.message }}{% else %}<span class="badge b-confirmed">不要</span> <span class="muted">{{ auth_state.message }}</span>{% endif %}</td></tr>
 </table></div>
+<div class="card"><h2>データ領域（ディスク）</h2>
+{% set st = storage %}{% set pct = (st.used / st.total * 100) if st.total else 0 %}
+<p>使用 <b>{{ '%.1f'|format(st.used / 1e9) }}GB</b> ／ 全体 {{ '%.1f'|format(st.total / 1e9) }}GB（空き {{ '%.2f'|format(st.free / 1e9) }}GB）
+{% if pct >= 90 %}<span class="badge b-error">残りわずか</span>{% elif pct >= 75 %}<span class="badge b-warn">注意</span>{% endif %}</p>
+<div class="bar" style="max-width:420px"><i style="width:{{ '%.0f'|format(pct) }}%;{% if pct >= 90 %}background:var(--err){% endif %}"></i></div>
+<p class="small muted">内訳：データベース {{ '%.0f'|format(st.db / 1e6) }}MB・原本（暗号化・圧縮） {{ '%.0f'|format(st.vault / 1e6) }}MB・バックアップ {{ '%.0f'|format(st.backups / 1e6) }}MB。
+毎日のバックアップはデータベースのみ（最大7世代）。原本はボリュームのバックアップで保全してください。</p></div>
 <div class="card"><h2>操作</h2>
 <form method="post" action="/ops/run" style="margin-bottom:8px"><input type="hidden" name="csrf" value="{{ csrf }}">
 <button name="action" value="collect">今すぐ収集（直近{{ sched.recheck_days }}日＋未処理期間）</button>

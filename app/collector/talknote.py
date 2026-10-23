@@ -98,19 +98,52 @@ class TalknoteClient:
             return False
 
     def ensure_login(self, probe_group_id: int) -> str:
-        if self.storage_state and self.session_ok(probe_group_id):
-            return "既存のログイン状態を利用"
+        if self.storage_state:
+            if self.session_ok(probe_group_id):
+                self._save_state()
+                return "既存のログイン状態を利用"
+            # 実データで確認：通信用のログインが切れても、画面のログイン状態（ログインしたままにする）は
+            # 残っていることがある。画面を一度開くと通信用のログインも更新される
+            if self.refresh_session(probe_group_id):
+                return "ログイン状態を更新しました"
         self.login()
         if not self.session_ok(probe_group_id):
             raise LoginFailed("ログイン後もノートを取得できない（権限またはURLを確認）")
         return "ログインしました"
 
-    def login(self):
-        if not self.creds or not self.creds.login_id or not self.creds.password:
-            raise LoginFailed("Talknoteのログイン情報が未登録です（設定画面または環境変数）")
+    def _save_state(self):
+        """Cookie は日々更新されるので、使えたログイン状態は毎回保存し直す。"""
+        self.storage_state = self._ctx.storage_state()
+        self.state_changed = True
+
+    def refresh_session(self, probe_group_id: int) -> bool:
         page = self._ctx.new_page()
         try:
             page.goto(self.login_url, wait_until="domcontentloaded", timeout=LOGIN_TIMEOUT_MS)
+            page.wait_for_timeout(1500)
+            if page.locator("#mail").count():
+                return False  # ログイン画面が出た＝画面のログイン状態も切れている
+        except Exception as e:
+            log.info("ログイン状態の更新に失敗: %s", e)
+            return False
+        finally:
+            page.close()
+        if self.session_ok(probe_group_id):
+            self._save_state()
+            return True
+        return False
+
+    def login(self):
+        if not self.creds or not self.creds.login_id or not self.creds.password:
+            raise LoginFailed("Talknoteのログイン情報が未登録です（設定画面または環境変数）")
+        self._ctx.clear_cookies()  # 古いログイン状態が残るとログイン画面が出ずにトップへ移るため
+        page = self._ctx.new_page()
+        try:
+            page.goto(self.login_url, wait_until="domcontentloaded", timeout=LOGIN_TIMEOUT_MS)
+            try:
+                page.wait_for_selector("#mail", timeout=LOGIN_TIMEOUT_MS)
+            except Exception:
+                raise LoginFailed(f"ログイン画面が表示されません（表示: {page.url} / {page.title()[:40]}）")
             page.fill("#mail", self.creds.login_id)
             page.fill("#password", self.creds.password)
             try:
@@ -129,8 +162,7 @@ class TalknoteClient:
             body = page.inner_text("body")[:2000]
             if any(k in body for k in ("認証コード", "ワンタイム", "二段階", "確認コード", "2段階")):
                 raise ReauthRequired("追加認証が求められています。管理画面の「再認証」から認証を完了してください。")
-            self.storage_state = self._ctx.storage_state()
-            self.state_changed = True
+            self._save_state()
         finally:
             page.close()
 

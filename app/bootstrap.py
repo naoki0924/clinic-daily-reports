@@ -16,7 +16,7 @@ DEFAULT_SETTINGS = {
     "notify": {"emails": [], "webhook_url": "", "smtp": {}},
     "retention": {"raw_days": 730},
     "ai": {"enabled": False},
-    "backup": {"enabled": True, "hour": 3, "keep": 14},
+    "backup": {"enabled": True, "hour": 3, "keep": 7},
 }
 
 

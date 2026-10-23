@@ -131,7 +131,7 @@ def execute(run_id: int) -> None:
             elif kind == "backup":
                 from .backup import run_backup
                 with session_scope() as s:
-                    keep = get_setting(s, "backup").get("keep", 14)
+                    keep = min(int(get_setting(s, "backup").get("keep", 7)), 7)  # DBのみ。容量を圧迫しないよう最大7世代
                 summary, status = {"file": str(run_backup(keep))}, "success"
             else:
                 summary, status = {"error": f"不明な処理 {kind}"}, "failed"

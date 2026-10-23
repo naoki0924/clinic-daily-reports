@@ -9,6 +9,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
+import os
+import zlib
 from pathlib import Path
 
 import bcrypt
@@ -61,14 +64,67 @@ def vault_dir() -> Path:
     return d
 
 
+# 保存形式：先頭 VAULT_MAGIC ＋ 圧縮（zlib）してから暗号化したトークンをバイナリで保存。
+# 実データで確認：Excel（xlsx）は内部の圧縮が弱く、zlibで約1/5になる。Fernetの文字列形式（+33%）もやめる。
+# 旧形式（暗号化トークンの文字列そのまま）も読める。
+VAULT_MAGIC = b"TNV2"
+
+
+def _pack(data: bytes) -> bytes:
+    return VAULT_MAGIC + base64.urlsafe_b64decode(encrypt_bytes(zlib.compress(data, 6)))
+
+
+def _unpack(raw: bytes) -> bytes:
+    if raw.startswith(VAULT_MAGIC):
+        return zlib.decompress(decrypt_bytes(base64.urlsafe_b64encode(raw[len(VAULT_MAGIC):])))
+    return decrypt_bytes(raw)
+
+
 def store_file(name: str, data: bytes) -> str:
     path = vault_dir() / f"{name}.bin"
-    path.write_bytes(encrypt_bytes(data))
+    tmp = path.with_suffix(".tmp")
+    tmp.write_bytes(_pack(data))
+    os.replace(tmp, path)
     return str(path.relative_to(settings.data_dir))
 
 
 def load_file(rel_path: str) -> bytes:
-    return decrypt_bytes((settings.data_dir / rel_path).read_bytes())
+    return _unpack((settings.data_dir / rel_path).read_bytes())
+
+
+def compact_vault(limit: int | None = None) -> dict:
+    """旧形式のファイルを新形式（圧縮＋バイナリ）に置き換える。中身は復号して一致を確認してから置き換える。
+    空き容量がほとんどなくても進むよう、小さいファイルから順に処理する。"""
+    done, saved, errors = 0, 0, 0
+    files = sorted((p for p in vault_dir().glob("*.bin")), key=lambda p: p.stat().st_size)
+    for p in files:
+        if limit is not None and done >= limit:
+            break
+        raw = p.read_bytes()
+        if raw.startswith(VAULT_MAGIC):
+            continue
+        try:
+            data = decrypt_bytes(raw)
+            packed = _pack(data)
+            if _unpack(packed) != data:
+                raise RuntimeError("検証に失敗")
+            tmp = p.with_suffix(".tmp")
+            try:
+                tmp.write_bytes(packed)
+                os.replace(tmp, p)
+            except OSError:  # 空きがない：同じファイルに上書きして切り詰める（新形式の方が必ず小さい）
+                tmp.unlink(missing_ok=True)
+                with open(p, "r+b") as fh:
+                    fh.write(packed)
+                    fh.truncate()
+            saved += len(raw) - len(packed)
+            done += 1
+        except Exception as e:  # 1件の失敗で止めない
+            errors += 1
+            logging.getLogger(__name__).warning("保護領域の圧縮に失敗 %s: %s", p.name, e)
+    for t in vault_dir().glob("*.tmp"):
+        t.unlink(missing_ok=True)
+    return {"converted": done, "saved_bytes": saved, "errors": errors}
 
 
 # ---- 秘密情報（DB） ---------------------------------------------------------

@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import secrets
+import threading
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -35,7 +36,8 @@ from ..models import (
     Notification, Observation, ParseRule, Report, SourceComment, SourceFile, SourcePost, Target,
 )
 from ..pipeline import reconcile_day, refresh_days
-from ..security import decrypt_text, get_secret, hash_password, mask, put_secret, verify_password
+from ..backup import cleanup_backups, storage_usage
+from ..security import compact_vault, decrypt_text, get_secret, hash_password, mask, put_secret, verify_password
 from . import queries as Q
 
 log = logging.getLogger("web")
@@ -51,6 +53,8 @@ async def lifespan(app: FastAPI):
         setup_token(s0)  # 利用者がいなければトークンを起動ログに出す
     finally:
         s0.close()
+    # 旧形式の原本を圧縮形式に置き換え、途中で止まったバックアップを片付ける（起動を待たせないよう別スレッド）
+    threading.Thread(target=_maintenance, name="maintenance", daemon=True).start()
     if settings.run_scheduler:
         from .. import scheduler
         scheduler.start()
@@ -58,6 +62,16 @@ async def lifespan(app: FastAPI):
     if settings.run_scheduler:
         from .. import scheduler
         scheduler.shutdown()
+
+
+def _maintenance() -> None:
+    try:
+        cleanup_backups(7)
+        r = compact_vault()
+        if r["converted"]:
+            logging.getLogger("maintenance").info("原本を圧縮形式に変換: %s", r)
+    except Exception:  # noqa: BLE001
+        logging.getLogger("maintenance").exception("maintenance failed")
 
 
 app = FastAPI(title="4院 日報集計", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -841,7 +855,7 @@ def ops(request: Request, s=Depends(get_db), u=Depends(require_admin)):
     return render(request, "ops.html", dict(runs=runs, last=last, steps=steps, per_clinic=per_clinic, notes=notes,
                                             sched=sched, next_run=scheduler.next_run(), scheduler_on=settings.run_scheduler,
                                             creds_registered=bool(creds or load_credentials(s)),
-                                            reauth=reauth_manager.state), s, u)
+                                            reauth=reauth_manager.state, storage=storage_usage()), s, u)
 
 
 @app.post("/ops/run")

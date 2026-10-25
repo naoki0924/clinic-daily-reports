@@ -3,7 +3,8 @@
 - 集計は daily_fact だけを使う（観測値を直接足さない）ので二重計上しない。
 - 残高（kind=balance）は日別に合算しない。
 - 全院合計は定義が統一できた指標（cross_clinic_sum）だけ。
-- 欠損・要確認・暫定値を含む集計は provisional=True（画面で「暫定」と表示）。
+- 欠損・要確認・暫定値・推定値を含む集計は provisional=True（画面で「暫定」と表示）。
+- 推定値（estimated）：本文とExcelの差異などで確定できない日を、仮の値で集計に含めたもの。確認キューには残る。
 - 率は日別の率の平均ではなく、分子・分母それぞれの合計から計算する。分母0は算出不可。
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ class Total:
     days_with_value: int = 0
     days_review: int = 0
     days_provisional: int = 0
+    days_estimated: int = 0
     days_missing: int = 0
     days_failed: int = 0
     days_closed: int = 0
@@ -42,7 +44,7 @@ class Total:
 
     @property
     def provisional(self) -> bool:
-        return bool(self.days_review or self.days_provisional or self.days_missing or self.days_failed)
+        return bool(self.days_review or self.days_provisional or self.days_estimated or self.days_missing or self.days_failed)
 
     @property
     def coverage_note(self) -> str:
@@ -53,6 +55,8 @@ class Total:
             parts.append(f"取得失敗{self.days_failed}日")
         if self.days_review:
             parts.append(f"要確認{self.days_review}日")
+        if self.days_estimated:
+            parts.append(f"推定値{self.days_estimated}日")
         if self.days_provisional:
             parts.append(f"暫定値{self.days_provisional}日")
         return "・".join(parts)
@@ -80,10 +84,12 @@ def total(s, clinics: list[str], metric: str, start: date, end: date, dims: dict
             q = q.where(getattr(DailyFact, c) == (dims.get(c) or ""))
     t = Total()
     vals, days = 0.0, set()
-    review_days, prov_days = set(), set()
+    review_days, prov_days, est_days = set(), set(), set()
     for f in s.scalars(q):
         if f.status == "review":
             review_days.add((f.clinic_code, f.target_date))
+        elif f.status == "estimated":
+            est_days.add((f.clinic_code, f.target_date))
         elif f.status == "provisional":
             prov_days.add((f.clinic_code, f.target_date))
         if f.value is not None and f.status != "review":
@@ -92,7 +98,8 @@ def total(s, clinics: list[str], metric: str, start: date, end: date, dims: dict
     t.value = vals if days else None
     t.days_with_value = len(days)
     t.days_review = len(review_days)
-    t.days_provisional = len(prov_days - review_days)
+    t.days_estimated = len(est_days - review_days)
+    t.days_provisional = len(prov_days - review_days - est_days)
     st_rows = s.execute(select(DayStatus.status, func.count()).where(
         DayStatus.clinic_code.in_(clinics), DayStatus.target_date >= start,
         DayStatus.target_date <= min(end, today - timedelta(days=1))).group_by(DayStatus.status)).all()
@@ -170,7 +177,7 @@ def _recompute_period(s, ptype: str, period: str, start: date, end: date, clinic
         a = acc[k]
         if f.status == "review":
             a["review"].add(f.target_date)
-        elif f.status == "provisional":
+        elif f.status in ("provisional", "estimated"):
             a["prov"].add(f.target_date)
         if f.value is not None and f.status != "review":
             a["v"] += f.value

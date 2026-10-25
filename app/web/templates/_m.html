@@ -1,7 +1,7 @@
 {% macro fcell(f, clinic, day, metric, unit='yen') -%}
 {%- if f is none -%}<td class="n muted">—</td>
-{%- else -%}<td class="n {% if f.status=='review' %}cell-review{% elif f.status=='provisional' %}cell-prov{% endif %}"
-  title="{{ FACT_STATUS[f.status] }}{% if f.note %}：{{ f.note }}{% endif %}"><a href="/evidence?clinic={{ clinic }}&day={{ day }}&metric={{ metric }}{% for c in DIM_COLS %}{% if f[c] %}&{{ c }}={{ f[c]|urlencode }}{% endif %}{% endfor %}">{{ fact_text(f, unit) }}</a>{% if f.status=='review' %}<sup class="small" style="color:var(--warn)">要</sup>{% elif f.status=='provisional' %}<sup class="small" style="color:var(--prov)">暫</sup>{% endif %}</td>
+{%- else -%}<td class="n {% if f.status=='review' %}cell-review{% elif f.status=='estimated' %}cell-est{% elif f.status=='provisional' %}cell-prov{% endif %}"
+  title="{{ FACT_STATUS[f.status] }}{% if f.note %}：{{ f.note }}{% endif %}"><a href="/evidence?clinic={{ clinic }}&day={{ day }}&metric={{ metric }}{% for c in DIM_COLS %}{% if f[c] %}&{{ c }}={{ f[c]|urlencode }}{% endif %}{% endfor %}">{{ fact_text(f, unit) }}</a>{% if f.status=='review' %}<sup class="small" style="color:var(--warn)">要</sup>{% elif f.status=='estimated' %}<sup class="small" style="color:#6b4fa0">推</sup>{% elif f.status=='provisional' %}<sup class="small" style="color:var(--prov)">暫</sup>{% endif %}</td>
 {%- endif -%}
 {%- endmacro %}
 

@@ -225,7 +225,7 @@ class DailyFact(Base):
     method: Mapped[str] = mapped_column(String(32), default="")
     value: Mapped[float | None] = mapped_column(Float, nullable=True)
     state: Mapped[str] = mapped_column(String(12))
-    status: Mapped[str] = mapped_column(String(12))  # confirmed / provisional / review
+    status: Mapped[str] = mapped_column(String(12))  # confirmed / provisional / estimated / review
     adopted_obs_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     adopted_by: Mapped[str] = mapped_column(String(64), default="auto")
     note: Mapped[str] = mapped_column(Text, default="")

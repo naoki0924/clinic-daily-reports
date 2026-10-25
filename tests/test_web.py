@@ -69,7 +69,7 @@ def test_adopt_value_resolves_conflict_and_records_history():
     with session_scope() as s:
         f = fact(s, "9ru", d, "sales_net")
         assert f.value == 160000 and f.status == "confirmed" and f.adopted_by.startswith("u_admin")
-        assert s.scalar(select(ManualAdjustment).where(ManualAdjustment.metric == "sales_net")).before_value is None
+        assert s.scalar(select(ManualAdjustment).where(ManualAdjustment.metric == "sales_net")).before_value == 160000  # 推定値
         assert s.get(Issue, iss.id).status == "resolved"
         assert s.scalar(select(AuditLog).where(AuditLog.action == "adjust")) is not None
 

@@ -15,7 +15,7 @@ from ..models import (
 STATUS_LABEL = {"submitted": "提出済", "review": "要確認", "missing": "未提出", "closed": "休診", "preopen": "開院前", "failed": "取得失敗",
                 "future": "未到来", None: "—"}
 STATE_LABEL = {"dash": "「-」", "blank": "空欄", "absent": "未記載", "conflict": "差異あり", "error": "読取失敗"}
-FACT_STATUS = {"confirmed": "確定", "provisional": "暫定", "review": "要確認"}
+FACT_STATUS = {"confirmed": "確定", "provisional": "暫定", "estimated": "推定", "review": "要確認"}
 KEY_METRICS = ["sales_net", "sales_gross", "receipt", "ar_new", "deposit", "visitors_total", "visitors_new",
                "contracts", "inquiries"]
 

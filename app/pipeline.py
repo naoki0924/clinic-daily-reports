@@ -454,8 +454,18 @@ def reconcile_day(s, clinic: str, d: date) -> None:
                 value, state, adopted = bv, b.state, b.id
                 note = "本文とExcelが一致"
             else:
-                status, state = "review", "conflict"
-                note = f"本文 {bv:,.0f} / Excel {xv:,.0f}（差 {bv - xv:+,.0f}）"
+                # 差異がある日も、確認が済むまで仮の値（推定）で集計に含める。確認キューには残す。
+                # 優先：後日のExcelの値（訂正後の可能性が高い）→ 当日のExcel（数式で集計された台帳）
+                #      → ただしExcelが「数式の結果の0」で本文に金額がある場合は本文
+                lo = later.get((metric, dt))
+                if lo is not None and _num(lo) is not None:
+                    pick, why = lo, "後日のExcel"
+                elif "数式の結果の0" in (x.location or "") and xv == 0 and bv:
+                    pick, why = b, "本文（Excelは数式の結果0）"
+                else:
+                    pick, why = x, "当日のExcel"
+                status, state, value, adopted = "estimated", pick.state, _num(pick), pick.id
+                note = f"推定：{why}の値を仮採用（本文 {bv:,.0f} / Excel {xv:,.0f}、差 {bv - xv:+,.0f}）"
                 hint = _explain_diff(obs, abs(bv - xv), metric)
                 if hint:
                     note += f"／{hint}"
@@ -489,7 +499,17 @@ def reconcile_day(s, clinic: str, d: date) -> None:
 
         for o in (b, x):
             if o is not None and o.suspicious:
-                status = "review"
+                other = x if o is b else b
+                if o.id == adopted and other is not None and _num(other) is not None and not other.suspicious:
+                    # 誤記の疑いがある側を採用していたら、もう一方（本文／Excel）の値で推定する
+                    value, state, adopted = _num(other), other.state, other.id
+                    note = (note + f"／推定：誤記の疑いがあるため{'Excel' if other is x else '本文'}の値を仮採用").lstrip("／")
+                if value is not None:
+                    status = "estimated"
+                    if "推定" not in note:
+                        note = (note + "／推定：誤記の疑いがある値を仮採用").lstrip("／")
+                else:
+                    status = "review"
                 tracker.add(f"susp:{o.source_kind}:{metric}:{'|'.join(dt)}", clinic=clinic, kind="suspicious_value",
                             target_date=d, metric=metric, post_id=o.post_id, file_id=o.file_id,
                             title=f"誤記・計算の疑い：{metric}（{o.source_kind}）{o.suspicious}",
@@ -503,15 +523,18 @@ def reconcile_day(s, clinic: str, d: date) -> None:
 
         lo = later.get((metric, dt))
         if lo is not None and value is not None and _num(lo) is not None and abs(_num(lo) - value) > 0.5:
-            status = "review"
+            # 後日のExcelで値が変わっている → 訂正後の可能性が高い後日の値で推定する
+            note = (note + f"／推定：後日のExcelの値を仮採用（当初 {value:,.0f} → {_num(lo):,.0f}）").lstrip("／")
+            value, state, adopted, status = _num(lo), lo.state, lo.id, "estimated"
             tracker.add(f"later:{metric}:{'|'.join(dt)}", clinic=clinic, kind="excel_later_change", target_date=d,
                         metric=metric, post_id=lo.post_id, file_id=lo.file_id,
                         title=f"後日の日報に添付されたExcelで {d:%m/%d} の値が変わっています：{metric}",
                         detail={"adopted": value, "later": _num(lo), "later_location": lo.location})
-        if ambiguous and status == "confirmed":
-            status = "review"
-        if active and active.date_status == "review" and status == "confirmed":
-            status = "review"
+        # 同じ日の日報が複数で判定できない・対象日が要確認：値があれば推定として集計に含める
+        if ambiguous and status in ("confirmed", "provisional"):
+            status = "estimated" if value is not None else "review"
+        if active and active.date_status == "review" and status in ("confirmed", "provisional"):
+            status = "estimated" if value is not None else "review"
         s.add(DailyFact(clinic_code=clinic, target_date=d, metric=metric, **dims, value=value, state=state,
                         status=status, adopted_obs_id=adopted, note=note[:500]))
     s.flush()

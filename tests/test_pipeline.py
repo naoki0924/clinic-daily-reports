@@ -160,7 +160,8 @@ def test_body_excel_mismatch_goes_to_review_with_both_sources():
                      workbook_9ru({d: v(24000000, 24000000, 24000000)}, [OCT]))
         run(s, [p], [("9ru", d)])
         f = fact(s, "9ru", d, "sales_net")
-        assert f.status == "review" and f.value is None and f.state == "conflict"
+        # 差異があっても確認キューに残したうえで、当日のExcelの値を推定として集計に含める
+        assert f.status == "estimated" and f.value == 24000000 and "推定" in f.note and "本文 1,400,000" in f.note
         iss = s.scalar(select(Issue).where(Issue.kind == "body_excel_mismatch", Issue.metric == "sales_net"))
         assert iss.detail["body"]["value"] == 1400000 and iss.detail["excel"]["value"] == 24000000
         assert "R19" in iss.detail["excel"]["location"]
@@ -211,7 +212,8 @@ def test_repost_correction_and_ambiguous_duplicates():
         assert fact(s, "9ru", d, "sales_net").value == 120000  # 訂正を反映（合算しない）
         e = add_post(s, "9ru", 13, datetime(2026, 10, 13, 21, 0), body_9ru(d, 5000, 5000))  # 訂正表記のない別の値
         run(s, [e], [("9ru", d)])
-        assert fact(s, "9ru", d, "sales_net").status == "review"
+        f = fact(s, "9ru", d, "sales_net")
+        assert f.status == "estimated" and f.value is not None        # 判定できない日も推定として含める
         assert s.scalar(select(Issue).where(Issue.kind == "duplicate_report", Issue.status == "open")) is not None
         agg = s.scalar(select(Aggregate).where(Aggregate.period == "2026-10", Aggregate.clinic_code == "9ru",
                                                Aggregate.metric == "sales_net"))
@@ -277,7 +279,8 @@ def test_later_excel_change_is_detected():
         b = add_post(s, "9ru", 61, datetime(2026, 10, 7, 18, 0), body_9ru(d2, 50000, 50000),
                      workbook_9ru({d1: v(130000), d2: v(50000)}, [OCT]))
         run(s, [a, b], [("9ru", d1), ("9ru", d2)])
-        assert fact(s, "9ru", d1, "sales_net").status == "review"
+        f = fact(s, "9ru", d1, "sales_net")
+        assert f.status == "estimated" and f.value == 130000           # 後日のExcel（訂正後の可能性が高い）で推定
         iss = s.scalar(select(Issue).where(Issue.kind == "excel_later_change", Issue.target_date == d1))
         assert iss.detail["later"] == 130000
         assert fact(s, "9ru", d2, "sales_net").value == 50000
